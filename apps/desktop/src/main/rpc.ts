@@ -2550,9 +2550,21 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   void slack.startSaved().catch(() => log.warn('Slack connection did not start'))
   shutdownTasks.push(() => slack.close())
 
+  // Metadata only, as the remote host answers: the transcript arrives on
+  // session.events, and sending every message twice doubled each open.
   r.register('session.load', async (params) => {
-    const model = await getSessionStore().load(params.sessionId)
-    return model.session ? model : null
+    const { messages, ...model } = await getSessionStore().load(params.sessionId)
+    return model.session
+      ? {
+          ...model,
+          messages: [],
+          context: {
+            hasMessages: messages.length > 0,
+            hasTurns: model.lastTurn != null || model.activeTurnId != null,
+            hasProviderContext: model.providerSessionId !== null,
+          },
+        }
+      : null
   })
 
   r.register('session.workspace', async ({ sessionId }) => {
@@ -3566,9 +3578,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
                 )
         void streamSessionReplay(
           sessionId,
-          async (sendChunk) => {
+          async (sendChunk, sendSnapshot) => {
             await settled
-            await engine.replaySessionChunks(sessionId, sendChunk)
+            await engine.openSession(sessionId, sendChunk, sendSnapshot)
           },
           (frame) => rpcRegistry.sendTo(params.id, frame),
           (error) => log.warn('journal replay failed', { sessionId, error: String(error) }),

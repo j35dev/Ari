@@ -11,7 +11,7 @@ import { pushMessageParts, type Message, type MessagePart } from '@ari/contracts
  * therefore O(N) plus one snapshot, not one list rebuild per event.
  */
 export interface MessageFold {
-  /** Appends a whole user message, as `user.message.added` journals it. */
+  /** Appends a whole message: a prompt as `user.message.added` journals it, or a saved one. */
   addUser(message: Message): void
   /**
    * Appends streamed parts to an assistant message, starting it from

@@ -1,5 +1,5 @@
 import type { JournalEvent } from '@ari/contracts/events'
-import type { MessagePart } from '@ari/contracts/message'
+import type { Message, MessagePart } from '@ari/contracts/message'
 
 /**
  * Tool results can carry whole screenshots as base64 (a Read of a PNG, an MCP
@@ -116,6 +116,12 @@ function compactParts(parts: readonly MessagePart[], blobs: ImageBlobs): Message
     return { ...part, resultJson }
   })
   return changed ? next : null
+}
+
+/** The message with large tool-result images moved into Blobs; the same object when none. */
+export function compactMessageImages(message: Message, blobs: ImageBlobs): Message {
+  const parts = compactParts(message.parts, blobs)
+  return parts === null ? message : { ...message, parts }
 }
 
 /** The event with large tool-result images moved into Blobs; the same object when none. */
