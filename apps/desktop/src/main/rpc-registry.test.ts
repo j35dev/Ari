@@ -15,6 +15,10 @@ describe('RpcRegistry', () => {
     registry.register('session.destroy', handler)
 
     await expect(registry.invoke('session.destroy', {})).rejects.toThrow(/invalid params/)
+    // A sentence naming the field, not zod's JSON dump of the issue list.
+    const error = await registry.invoke('session.destroy', {}).catch((e: unknown) => e)
+    expect((error as Error).message).toMatch(/^invalid params for session\.destroy: sessionId: /)
+    expect((error as Error).message).not.toContain('[')
     expect(handler).not.toHaveBeenCalled()
 
     await registry.invoke('session.destroy', { sessionId: 'sess_1' })
