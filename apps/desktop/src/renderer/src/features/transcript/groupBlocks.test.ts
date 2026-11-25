@@ -34,23 +34,27 @@ function assistantMessage(parts: Message['parts']): Message {
 }
 
 describe('groupBlocks', () => {
-  it('folds a long same-turn progress loop while preserving the intro, final reply and every update', () => {
+  it('keeps narration between tool calls as its own rows', () => {
     const parts: Message['parts'] = [{ type: 'text', text: 'Intro.' }]
-    for (let index = 0; index < 40; index++)
+    for (let index = 0; index < 3; index++)
       parts.push(
         { type: 'tool-call', callId: `${index}`, name: 'Bash', argsJson: '{}' },
         { type: 'tool-result', callId: `${index}`, resultJson: 'ok', isError: false },
-        { type: 'text', text: index === 39 ? 'Final reply.' : `Update ${index}.` },
+        { type: 'text', text: index === 2 ? 'Final reply.' : `Update ${index}.` },
       )
     const message = { ...assistantMessage(parts), turnId: 'turn' }
-    const rows = groupBlocks(splitBlocks([message]), undefined, undefined, undefined, true)
-    expect(rows.map((row) => row.kind)).toEqual(['markdown', 'tool-group', 'markdown'])
-    expect(rows[0]).toMatchObject({ text: 'Intro.' })
-    expect(rows[2]).toMatchObject({ text: 'Final reply.' })
-    expect(rows[1]?.kind === 'tool-group' && rows[1].calls).toHaveLength(40)
-    expect(
-      rows[1]?.kind === 'tool-group' && rows[1].blocks.filter((block) => block.kind === 'markdown'),
-    ).toHaveLength(39)
+    const rows = groupBlocks(splitBlocks([message]))
+    expect(rows.map((row) => row.kind)).toEqual([
+      'markdown',
+      'tool-group',
+      'markdown',
+      'tool-group',
+      'markdown',
+      'tool-group',
+      'markdown',
+    ])
+    expect(rows[2]).toMatchObject({ text: 'Update 0.' })
+    expect(rows[6]).toMatchObject({ text: 'Final reply.' })
   })
   it('gives a subagent call its own row, holding its result, between the runs around it', () => {
     const parts: Message['parts'] = [

@@ -709,16 +709,16 @@ describe('TranscriptView tool bursts', () => {
     }
   }
 
-  it('renders a lone tool call as one burst that opens straight to its body', async () => {
+  it('renders a settled read as an Explored line that opens to the call', async () => {
     const user = userEvent.setup()
     render(createElement(TranscriptView, { sessionId: 'sess_1', messages: [toolMessage('m1')] }))
 
-    const burst = screen.getByRole('button', { name: 'Read a.ts · Read 1 file' })
-    await user.click(burst)
+    await user.click(screen.getByRole('button', { name: 'Explored 1 file' }))
+    await user.click(screen.getByRole('button', { name: 'Read src/a.ts' }))
     expect(screen.getByText('Ari Read')).toBeInTheDocument()
   })
 
-  it('keeps live activity compact across the turn while retaining its current-action headline', async () => {
+  it('shows live activity as its steps and folds the exploration once the turn settles', async () => {
     const { rerender } = render(
       createElement(TranscriptView, {
         sessionId: 'sess_1',
@@ -727,14 +727,9 @@ describe('TranscriptView tool bursts', () => {
       }),
     )
 
-    expect(screen.getByRole('button', { name: /Working: Reading src\/a\.ts/ })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    )
-    expect(document.querySelector('[data-activity="working"]')).not.toBeNull()
-    // Live, the body is the step timeline: the lone-call shortcut is a
-    // settled-state affordance, so the row's shape cannot change mid-turn.
-    expect(screen.queryByRole('button', { name: 'Reading src/a.ts' })).not.toBeInTheDocument()
+    const live = document.querySelector('[data-activity="working"]')
+    expect(live).toHaveAttribute('aria-label', expect.stringMatching(/Working: Reading src\/a\.ts/))
+    expect(screen.getByRole('button', { name: 'Reading src/a.ts' })).toBeInTheDocument()
 
     rerender(
       createElement(TranscriptView, {
@@ -744,19 +739,16 @@ describe('TranscriptView tool bursts', () => {
       }),
     )
 
-    // The row holds open for a beat, so a turn that immediately dequeues the
-    // next message cannot make it flicker shut and open again.
-    expect(screen.getByRole('button', { name: /Working: Reading src\/a\.ts/ })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    )
+    // The row holds live for a beat, so a turn that immediately dequeues the
+    // next message cannot make it fold and spring open again.
+    expect(document.querySelector('[data-activity="working"]')).not.toBeNull()
 
-    const settled = await screen.findByRole('button', { name: 'Read a.ts · Read 1 file' })
+    const settled = await screen.findByRole('button', { name: 'Explored 1 file' })
     expect(settled).toHaveAttribute('aria-expanded', 'false')
     expect(document.querySelector('[data-activity="working"]')).toBeNull()
   })
 
-  it('keeps a whole stretch of work in one row instead of a wall of tallies', () => {
+  it('keeps a whole stretch of work in one burst, its newest commands on screen', () => {
     const parts: Message['parts'] = []
     for (let i = 0; i < 9; i++) {
       parts.push({ type: 'tool-call', callId: `c${i}`, name: 'Bash', argsJson: '{"command":"ls"}' })
@@ -775,7 +767,8 @@ describe('TranscriptView tool bursts', () => {
     )
 
     expect(container.querySelectorAll('.ari-burst')).toHaveLength(1)
-    expect(screen.getByRole('button', { name: 'Ran ls · Ran 9 commands' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Ran ls' })).toHaveLength(6)
+    expect(screen.getByRole('button', { name: '3 earlier steps' })).toBeInTheDocument()
   })
 })
 

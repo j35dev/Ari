@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
+import { WorkingPhaseContext } from './working-phase'
 import { subscribeTick, TICK_MS, useTickingText } from './shared-clock'
 import './session-activity.css'
 
@@ -44,8 +45,11 @@ export interface WorkingGlyphProps {
  * around its perimeter beside a flavour word that swaps every 2s, plus an
  * optional live elapsed timer when `startedAt` is given.
  */
-export function WorkingGlyph({ label, startedAt }: WorkingGlyphProps) {
+export function WorkingGlyph({ label: fixedLabel, startedAt }: WorkingGlyphProps) {
   const [wordIndex, setWordIndex] = useState(0)
+  // Inside a transcript the word says what the turn is doing.
+  const phase = useContext(WorkingPhaseContext)
+  const label = fixedLabel ?? (phase === undefined ? undefined : (phase ?? ''))
 
   useEffect(() => {
     if (label !== undefined) return
@@ -63,7 +67,7 @@ export function WorkingGlyph({ label, startedAt }: WorkingGlyphProps) {
   return (
     <span
       role="img"
-      aria-label={label ?? 'Agent working'}
+      aria-label={fixedLabel ?? 'Agent working'}
       className="inline-flex items-center gap-2"
     >
       {/* The chase is a compositor-only CSS loop (the sidebar mark's), so a
@@ -85,9 +89,15 @@ export function WorkingGlyph({ label, startedAt }: WorkingGlyphProps) {
         })}
       </span>
       {/* Keyed so each word plays its entrance; no exit holds the next back. */}
-      <span key={word} className="ari-enter-rise text-xs text-fg-subtle">
-        {word}…
-      </span>
+      {word.length > 0 ? (
+        <span
+          key={word}
+          className={`ari-enter-rise text-xs ${phase === undefined ? 'text-fg-subtle' : 'ari-shimmer'}`}
+        >
+          {word}
+          {phase === undefined ? '…' : null}
+        </span>
+      ) : null}
       {startedAt != null ? <ElapsedSeconds startedAt={startedAt} /> : null}
     </span>
   )

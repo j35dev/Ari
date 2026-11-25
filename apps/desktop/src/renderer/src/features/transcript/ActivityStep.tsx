@@ -94,10 +94,10 @@ export function ActivityStep({
       >
         <Icon size={14} className="shrink-0 text-fg-subtle" aria-hidden="true" />
         {nameOnly ? (
-          <span className="min-w-0 truncate">{label}</span>
+          <span className={`min-w-0 truncate ${pending ? 'ari-shimmer' : ''}`}>{label}</span>
         ) : (
           <>
-            <span className="shrink-0">{verb}</span>
+            <span className={`shrink-0 ${pending ? 'ari-shimmer' : ''}`}>{verb}</span>
             <span className="min-w-0 truncate font-mono text-[12.5px] text-fg-subtle transition-colors group-hover:text-fg-muted">
               {target}
             </span>

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ActivityBurst } from './ActivityBurst'
@@ -64,108 +64,131 @@ describe('ActivityBurst collapsed', () => {
     expect(screen.getByText('0s')).toBeInTheDocument()
   })
 
-  it('names what the burst touched and hides every step until asked', () => {
+  it('shows settled work as one line per command and edit, thoughts as thought lines', () => {
     const { container } = render(<ActivityBurst row={row(RUN)} active={false} />)
 
-    const toggle = screen.getByRole('button', { expanded: false })
-    expect(toggle).toHaveTextContent('Edited')
-    expect(toggle).toHaveTextContent('main.ts, types.ts')
-    // The tally survives for screen readers without spending a row on it.
-    expect(toggle).toHaveAccessibleName(/Edited main\.ts, types\.ts · Edited 2 files/)
-    expect(screen.queryByText('git status --short')).not.toBeInTheDocument()
-    expect(screen.queryByText('weighing the options')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ran git status --short' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edited desktop/main.ts' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Edited .*types\.ts$/ })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Reasoning' })).toHaveLength(2)
+    // Raw payloads stay closed behind each step's own disclosure.
+    expect(screen.queryByText('"done"')).not.toBeInTheDocument()
     expect(container.querySelector('[data-activity="settled"]')).not.toBeNull()
-    // Settled work is history: no working glyph.
-    expect(toggle.querySelector('.ari-status')).toBeNull()
+    // Settled work is history: no working ring, no shimmer.
+    expect(container.querySelector('.ari-status[data-status="working"]')).toBeNull()
+    expect(container.querySelector('.ari-shimmer')).toBeNull()
   })
 
-  it('keeps live work compact while naming the newest call', () => {
+  it('shows live work as its steps, the running one named in the present tense', () => {
     const { container } = render(<ActivityBurst row={row(RUN.slice(0, 5))} active />)
 
-    const toggle = screen.getByRole('button', {
-      expanded: false,
-      name: /^Working: Editing desktop\/main\.ts/,
-    })
-    expect(toggle.querySelector('.ari-status[data-status="working"]')).not.toBeNull()
-    expect(toggle).toHaveTextContent('Editing')
-    expect(screen.queryByRole('button', { name: 'Ran git status --short' })).not.toBeInTheDocument()
-    expect(container.querySelector('[data-activity="working"]')).not.toBeNull()
+    const live = container.querySelector('[data-activity="working"]')
+    expect(live).toHaveAttribute(
+      'aria-label',
+      expect.stringMatching(/^Working: Editing desktop\/main\.ts/),
+    )
+    expect(screen.getByRole('button', { name: 'Ran git status --short' })).toBeInTheDocument()
+    const editing = screen.getByRole('button', { name: 'Editing desktop/main.ts' })
+    expect(editing.querySelector('.ari-shimmer')).toHaveTextContent('Editing')
+    expect(editing.querySelector('.ari-status[data-status="working"]')).not.toBeNull()
   })
 
-  it('stays compact between chained calls without losing its live headline', () => {
-    // An answered call whose turn is still running is the state that used to
-    // slam the row shut in the gap between every pair of chained calls.
-    const answered = [
-      thinking('t1', 'weighing it\ndeeper detail here'),
-      call('c1', 'Bash', '{"command":"git status --short"}'),
+  it('keeps the newest lines on screen and the rest behind one line', async () => {
+    const user = userEvent.setup()
+    const many: TranscriptBlock[] = []
+    for (let i = 0; i < 8; i++) {
+      many.push(call(`c${i}`, 'Bash', `{"command":"step ${i}"}`), result(`c${i}`))
+    }
+    render(<ActivityBurst row={row(many)} active />)
+
+    expect(screen.queryByRole('button', { name: 'Ran step 1' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Ran step 2' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ran step 7' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '2 earlier steps' }))
+    expect(screen.getByRole('button', { name: 'Ran step 0' })).toBeInTheDocument()
+  })
+
+  it('folds reads and searches into one Explored line that opens to them', async () => {
+    const user = userEvent.setup()
+    const looking = [
+      call('c1', 'Read', '{"file_path":"src/a.ts"}'),
       result('c1'),
+      call('c2', 'Grep', '{"pattern":"turnSettled"}'),
+      result('c2'),
+      call('c3', 'Read', '{"file_path":"src/b.ts"}'),
+      result('c3'),
     ]
-    const { container } = render(<ActivityBurst row={row(answered)} active />)
+    render(<ActivityBurst row={row(looking)} active={false} />)
 
-    const toggle = screen.getByRole('button', {
-      expanded: false,
-      name: /^Working: Running git status --short/,
-    })
-    expect(toggle).toHaveTextContent('Running')
-    expect(container.querySelector('[data-activity="working"]')).not.toBeNull()
+    const line = screen.getByRole('button', { name: 'Explored 2 files, 1 search' })
+    expect(line).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: 'Read src/a.ts' })).toBeNull()
+
+    await user.click(line)
+    expect(screen.getByRole('button', { name: 'Read src/a.ts' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Read src/b.ts' })).toBeInTheDocument()
   })
 
-  it('keeps tool errors visible in the collapsed headline', () => {
-    const { container } = render(
+  it('lists an exploration under way, then folds it once the turn moves on', async () => {
+    const looking = [call('c1', 'Read', '{"file_path":"src/a.ts"}'), result('c1')]
+    const { container, rerender } = render(<ActivityBurst row={row(looking)} active />)
+
+    const line = screen.getByRole('button', { name: 'Exploring 1 file' })
+    expect(line).toHaveAttribute('aria-expanded', 'true')
+    expect(line.querySelector('.ari-shimmer')).toHaveTextContent('Exploring')
+    expect(screen.getByRole('button', { name: 'Read src/a.ts' })).toBeInTheDocument()
+
+    rerender(<ActivityBurst row={row(looking)} active={false} />)
+
+    const settled = await screen.findByRole('button', { name: 'Explored 1 file' })
+    expect(settled).toHaveAttribute('aria-expanded', 'false')
+    // The steps leave through the fold, then are gone.
+    await waitFor(() => expect(container.querySelector('.ari-fold')).toBeNull())
+  })
+
+  it('keeps a failed step visible where it happened', () => {
+    render(
       <ActivityBurst
         row={row([call('c1', 'Bash', '{"command":"pnpm verify"}'), result('c1', true)])}
         active={false}
       />,
     )
 
-    const toggle = screen.getByRole('button', { expanded: false })
-    expect(toggle).toHaveAccessibleName('Ran pnpm verify · Ran 1 command')
-    expect(toggle.textContent).toMatch(/1 failed/)
-    expect(container.querySelector('[data-activity="settled"]')).not.toBeNull()
-    expect(container.querySelector('[data-activity="failed"]')).toBeNull()
+    const step = screen.getByRole('button', { name: 'Ran pnpm verify, error' })
+    expect(step.querySelector('.ari-status[data-status="error"]')).not.toBeNull()
   })
 
-  it('falls back to a bucket phrase when nothing is nameable', () => {
-    render(<ActivityBurst row={row([call('c1', 'Read', '{}'), result('c1')])} active={false} />)
+  it('opens a step to its arguments and result', async () => {
+    const user = userEvent.setup()
+    const lone = [call('c1', 'Bash', '{"command":"git status --short"}'), result('c1')]
+    render(<ActivityBurst row={row(lone)} active={false} />)
 
-    expect(screen.getByRole('button', { name: 'Read 1 file' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Ran git status --short' }))
+
+    expect(await screen.findByText('Ari Run')).toBeInTheDocument()
   })
 })
 
-describe('ActivityBurst expanded', () => {
-  it('lists one row per step in wire order, results folded into their call', async () => {
-    const user = userEvent.setup()
-    render(<ActivityBurst row={row(RUN)} active={false} />)
+describe('ActivityBurst in the terminal style', () => {
+  it('names what the burst touched in one headline, open to every step', () => {
+    render(<ActivityBurst row={row(RUN)} active={false} terminal />)
 
-    await user.click(screen.getByRole('button', { expanded: false }))
-
+    const toggle = screen.getByRole('button', { expanded: true, name: /Edited main\.ts/ })
+    expect(toggle).toHaveTextContent('main.ts, types.ts')
+    expect(toggle).toHaveAccessibleName(/Edited main\.ts, types\.ts · Edited 2 files/)
     expect(screen.getByRole('button', { name: 'Ran git status --short' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Edited desktop/main.ts' })).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: 'Reasoning' })).toHaveLength(2)
-    // Raw payloads stay closed behind their own step disclosure.
-    expect(screen.queryByText('"done"')).not.toBeInTheDocument()
   })
 
-  it('reveals a thought in full when its step is opened', async () => {
-    const user = userEvent.setup()
-    render(<ActivityBurst row={row(RUN)} active={false} />)
+  it('counts failures in the headline', () => {
+    render(
+      <ActivityBurst
+        row={row([call('c1', 'Bash', '{"command":"pnpm verify"}'), result('c1', true)])}
+        active={false}
+        terminal
+      />,
+    )
 
-    await user.click(screen.getByRole('button', { expanded: false }))
-    expect(screen.queryByText(/deeper detail here/)).not.toBeInTheDocument()
-
-    await user.click(screen.getAllByRole('button', { name: 'Reasoning' })[0]!)
-    expect(screen.getByText(/deeper detail here/)).toBeInTheDocument()
-  })
-
-  it('opens a lone call straight to its body instead of a one-item list', async () => {
-    const user = userEvent.setup()
-    const lone = [call('c1', 'Bash', '{"command":"git status --short"}'), result('c1')]
-    const { container } = render(<ActivityBurst row={row(lone)} active={false} />)
-
-    await user.click(screen.getByRole('button', { expanded: false }))
-
-    expect(await screen.findByText('Ari Run')).toBeInTheDocument()
-    expect(container.textContent).toContain('git status --short')
-    expect(screen.queryByRole('button', { name: 'Ran git status --short' })).not.toBeInTheDocument()
+    const toggle = screen.getByRole('button', { name: 'Ran pnpm verify · Ran 1 command' })
+    expect(toggle.textContent).toMatch(/1 failed/)
   })
 })
