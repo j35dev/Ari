@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('providers:teardown')
@@ -38,23 +38,48 @@ export async function teardownChild(
   child: TeardownTarget,
   options: TeardownOptions = {},
 ): Promise<void> {
-  const { eofGraceMs = 300, termGraceMs = 2000, killTree = defaultKillTree } = options
-  if (isGone(child)) return
+  const {
+    eofGraceMs = 300,
+    termGraceMs = 2000,
+    killTree = defaultKillTree,
+    killOrphans = defaultKillOrphans,
+    platform = process.platform,
+  } = options
+  if (isGone(child)) {
+    // A Windows shell wrapper can be gone while the CLI it started still runs
+    // and holds the pipes open. A tree kill through the dead pid no longer
+    // reaches it, so find what the wrapper started while it lived.
+    const wrapper = shellWrappers.get(child)
+    const pid = child.pid
+    if (platform !== 'win32' || !wrapper || wrapper.closed || pid === undefined) return
+    log.debug('teardown killing processes orphaned by a shell wrapper', { pid })
+    try {
+      await killOrphans(pid, wrapper.spawnedAt, wrapper.exitedAt ?? Date.now())
+    } catch (error) {
+      log.warn('orphan kill failed', error)
+    }
+    await raceExit(onceClose(child), termGraceMs)
+    return
+  }
 
   const exited = onceClose(child)
 
-  // Rung 1: EOF.
+  // Rung 1: EOF. Without a grace the next rung starts synchronously.
   if (child.stdin && !child.stdin.writableEnded) child.stdin.end()
-  if (await raceExit(exited, eofGraceMs)) return
+  if (eofGraceMs > 0 && (await raceExit(exited, eofGraceMs))) return
 
-  // Rung 2: SIGTERM.
-  log.debug('teardown escalating to SIGTERM', { pid: child.pid })
-  try {
-    child.kill('SIGTERM')
-  } catch {
-    // Already dead between the check and the call.
+  // Rung 2: SIGTERM. On Windows that is TerminateProcess on the direct child
+  // alone: a cmd.exe shim dies, and the CLI it started keeps running beyond
+  // the reach of a later tree kill. Windows goes straight to the tree.
+  if (platform !== 'win32' || child.pid === undefined) {
+    log.debug('teardown escalating to SIGTERM', { pid: child.pid })
+    try {
+      child.kill('SIGTERM')
+    } catch {
+      // Already dead between the check and the call.
+    }
+    if (await raceExit(exited, termGraceMs)) return
   }
-  if (await raceExit(exited, termGraceMs)) return
 
   // Rung 3: tree kill.
   const pid = child.pid
@@ -64,8 +89,47 @@ export async function teardownChild(
     await killTree(pid)
   } catch (error) {
     log.warn('tree kill failed', error)
+    try {
+      child.kill('SIGTERM')
+    } catch {
+      // Already dead.
+    }
   }
   await raceExit(exited, termGraceMs)
+}
+
+/**
+ * Stop for a one-shot CLI: its prompt already went, so skip the EOF grace and
+ * take down the whole process tree. A bare kill() on Windows ends only the
+ * cmd.exe shim and leaves the real agent running.
+ */
+export function interruptChild(child: TeardownTarget): void {
+  void teardownChild(child, { eofGraceMs: 0 })
+}
+
+interface ShellWrapper {
+  spawnedAt: number
+  exitedAt?: number
+  closed: boolean
+}
+
+const shellWrappers = new WeakMap<object, ShellWrapper>()
+
+/**
+ * Remembers a Windows shell wrapper's (cmd.exe, powershell.exe) lifetime, so
+ * teardown can still reach the CLI it started once the wrapper is gone.
+ */
+export function trackShellWrapper(child: {
+  once(event: string, listener: () => void): unknown
+}): void {
+  const wrapper: ShellWrapper = { spawnedAt: Date.now(), closed: false }
+  shellWrappers.set(child, wrapper)
+  child.once('exit', () => {
+    wrapper.exitedAt = Date.now()
+  })
+  child.once('close', () => {
+    wrapper.closed = true
+  })
 }
 
 export interface TeardownOptions {
@@ -75,6 +139,10 @@ export interface TeardownOptions {
   termGraceMs?: number
   /** Overridable final rung (tests). */
   killTree?: (pid: number) => Promise<void>
+  /** Overridable sweep of a gone wrapper's surviving children (tests). */
+  killOrphans?: (parentPid: number, spawnedAt: number, exitedAt: number) => Promise<void>
+  /** Overridable platform (tests). */
+  platform?: NodeJS.Platform
 }
 
 const tornDown = new WeakSet<object>()
@@ -116,6 +184,34 @@ async function raceExit(exited: Promise<void>, ms: number): Promise<boolean> {
     return await Promise.race([exited.then(() => true), timeout])
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/**
+ * Kills the trees of processes a gone Windows parent started. Windows keeps a
+ * child's parent pid after the parent exits, but that pid can be reused, so
+ * only children created during the parent's own lifetime count.
+ */
+async function defaultKillOrphans(
+  parentPid: number,
+  spawnedAt: number,
+  exitedAt: number,
+): Promise<void> {
+  const script = `Get-CimInstance Win32_Process -Filter 'ParentProcessId=${parentPid}' | ForEach-Object { '{0} {1}' -f $_.ProcessId, ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() }`
+  const stdout = await new Promise<string>((resolvePromise, rejectPromise) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      { windowsHide: true, timeout: 15_000 },
+      (error: Error | null, out: string) => (error ? rejectPromise(error) : resolvePromise(out)),
+    )
+  })
+  for (const line of stdout.split(/\r?\n/)) {
+    const [pid, createdAt] = line.trim().split(' ').map(Number)
+    if (!pid || !createdAt) continue
+    // CIM creation times are whole milliseconds; allow for clock rounding.
+    if (createdAt < spawnedAt - 1000 || createdAt > exitedAt) continue
+    await defaultKillTree(pid).catch((error: unknown) => log.warn('orphan tree kill failed', error))
   }
 }
 

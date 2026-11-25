@@ -95,6 +95,8 @@ const fixture = await vi.hoisted(async () => {
     presenceStop: vi.fn(),
     closeTriageLogs: vi.fn(async () => undefined),
     startTriageLogs: vi.fn(),
+    installCrashReporting: vi.fn(),
+    reportStartupFailure: vi.fn(async (_reason: string, _error: unknown) => undefined),
   }
 })
 
@@ -109,6 +111,10 @@ vi.mock('electron', () => ({
 }))
 vi.mock('./dev-instance', () => ({ isolateDevInstance: vi.fn() }))
 vi.mock('./triage/runtime', () => ({ startTriageLogging: fixture.startTriageLogs }))
+vi.mock('./crash-reporting', () => ({
+  installCrashReporting: fixture.installCrashReporting,
+  reportStartupFailure: fixture.reportStartupFailure,
+}))
 vi.mock('./discord-presence', () => ({
   DiscordPresence: class {
     setRunningCount = vi.fn()
@@ -343,12 +349,19 @@ describe('main window lifetime', () => {
     await vi.waitFor(() => expect(window.destroyed).toBe(true))
   })
 
-  it('quits on synchronous startup failure without creating another runtime', async () => {
+  it('installs crash reporting before the app starts', async () => {
+    await boot()
+    expect(fixture.installCrashReporting).toHaveBeenCalledOnce()
+  })
+
+  it('says why on synchronous startup failure, quits, and creates no other runtime', async () => {
+    const failure = new Error('RPC startup failed')
     fixture.registerRpc.mockImplementation(() => {
-      throw new Error('RPC startup failed')
+      throw failure
     })
     await boot()
-    expect(fixture.app.quit).toHaveBeenCalled()
+    await vi.waitFor(() => expect(fixture.app.quit).toHaveBeenCalled())
+    expect(fixture.reportStartupFailure).toHaveBeenCalledWith('Ari failed to start', failure)
     fixture.app.emit('activate')
     expect(fixture.registerRpc).toHaveBeenCalledOnce()
   })
@@ -358,7 +371,12 @@ describe('main window lifetime', () => {
     window.webContents.emit('did-fail-load', {}, -3, 'aborted', 'app', true)
     window.webContents.emit('did-fail-load', {}, -2, 'guest failed', 'guest', false)
     expect(fixture.app.quit).not.toHaveBeenCalled()
+    expect(fixture.reportStartupFailure).not.toHaveBeenCalled()
     window.webContents.emit('did-fail-load', {}, -2, 'app failed', 'app', true)
     await vi.waitFor(() => expect(fixture.shutdown).toHaveBeenCalledOnce())
+    expect(fixture.reportStartupFailure).toHaveBeenCalledWith(
+      'The main window failed to load',
+      'app failed (-2)',
+    )
   })
 })

@@ -4,7 +4,7 @@ import { app } from 'electron'
 import { observeLogs } from '@ari/shared/logger'
 import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
-import { TriageLog } from './diagnostics'
+import { TriageLog, errorDetail } from './diagnostics'
 
 let log: TriageLog | null = null
 export function triageLog(): TriageLog {
@@ -12,8 +12,8 @@ export function triageLog(): TriageLog {
 }
 export function startTriageLogging(): () => Promise<void> {
   const sink = triageLog()
-  const off = observeLogs((level, scope, message) => {
-    if (level === 'warn' || level === 'error') sink.record(scope, message)
+  const off = observeLogs((level, scope, message, data) => {
+    if (level === 'warn' || level === 'error') sink.record(scope, message, errorDetail(data))
   })
   return async () => {
     off()
