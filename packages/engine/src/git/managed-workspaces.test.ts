@@ -299,6 +299,19 @@ it('integrates an empty delta without invoking apply', async () => {
   expect(git(repo, 'rev-parse', 'HEAD')).toBe(head)
 }, 20_000)
 
+it.runIf(process.platform === 'win32')(
+  'isolates a project holding a stray Windows device-named file such as nul',
+  async () => {
+    // A `2>nul` run in a POSIX shell leaves a real file Git for Windows cannot index.
+    await writeFile(`\\\\?\\${join(repo, 'nul')}`, 'stray\n')
+    await writeFile(join(repo, 'draft.txt'), 'untracked work\n')
+    const workspace = await manager.isolate(root, repo, 'child')
+    if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+    expect(await readFile(join(workspace.path, 'draft.txt'), 'utf8')).toBe('untracked work\n')
+  },
+  20_000,
+)
+
 it('rejects invalid, missing and foreign snapshots and stale parent previews before generating a patch', async () => {
   const workspace = await manager.isolate(root, repo, 'child')
   if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')

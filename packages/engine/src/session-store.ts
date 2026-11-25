@@ -313,7 +313,11 @@ export class SessionStore extends LegacySessionStore {
       pending = null
       characters = 0
     }
-    for await (const chunk of history.readByChunk()) {
+    const chunks =
+      history instanceof ConversationHistory
+        ? history.read(256 * 1024, true)
+        : history.readByChunk()
+    for await (const chunk of chunks) {
       for (const entry of chunk) {
         if (entry.kind !== 'value') continue
         const event = entry.value
@@ -340,10 +344,6 @@ export class SessionStore extends LegacySessionStore {
         } else {
           finish()
           output.push(event)
-        }
-        if (output.length >= 128) {
-          yield output
-          output = []
         }
       }
       // Publish each certified source chunk even if a later read fails.
@@ -518,18 +518,26 @@ class ConversationHistory extends Journal<JournalEvent> {
   override async append(event: JournalEvent): Promise<void> {
     await this.store.append(this.id, event)
   }
-  override async *readByChunk(
-    maxChunkChars = 256 * 1024,
+  override readByChunk(maxChunkChars = 256 * 1024): AsyncGenerator<ParsedLine<JournalEvent>[]> {
+    return this.read(maxChunkChars, false)
+  }
+  /**
+   * Chunks follow size, not stored rows: control events are saved one row
+   * each, and a frame per row repainted a long transcript line by line.
+   */
+  async *read(
+    maxChunkChars: number,
+    transcript: boolean,
   ): AsyncGenerator<ParsedLine<JournalEvent>[]> {
     await this.store.load(this.id)
     await this.store.flush(this.id)
     let afterId = 0
     let line = 0
+    let chunk: ParsedLine<JournalEvent>[] = []
+    let bytes = 0
     for (;;) {
-      const batches = await this.database.history(this.id, afterId)
+      const batches = await this.database.history(this.id, afterId, transcript)
       if (!batches.length) break
-      let chunk: ParsedLine<JournalEvent>[] = [],
-        bytes = 0
       for (const batch of batches) {
         for (const value of JSON.parse(batch.json) as unknown[]) {
           const raw = JSON.stringify(value)
@@ -540,22 +548,16 @@ class ConversationHistory extends Journal<JournalEvent> {
               : { kind: 'error', message: 'Invalid conversation event', raw, line: ++line },
           )
           bytes += raw.length
-          if (bytes >= maxChunkChars || chunk.length >= 128) {
-            yield chunk
-            chunk = []
-            bytes = 0
-          }
         }
         afterId = batch.id
-        // Stored batch boundaries are immutable, so compact ranges stay stable on retries.
-        if (chunk.length) {
+        if (bytes >= maxChunkChars) {
           yield chunk
           chunk = []
           bytes = 0
         }
       }
-      if (chunk.length) yield chunk
     }
+    if (chunk.length) yield chunk
   }
   override async *readStrictByChunk(
     signal?: AbortSignal,

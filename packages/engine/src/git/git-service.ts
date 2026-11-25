@@ -16,6 +16,24 @@ export const DIFF_MAX_BYTES = 512 * 1024
 /** Git's hash of the empty tree; the base for a repo that has no commits yet. */
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
+/**
+ * Pathspecs that keep Windows device names (`nul`, `con.txt`, `com1`…) out of a
+ * working-tree snapshot. Git for Windows refuses to index them, so one stray
+ * `nul` left by a shell redirect failed every snapshot, and every new session.
+ */
+export function snapshotPathspecs(paths: string[], platform = process.platform): string[] {
+  if (platform !== 'win32') return paths.length ? ['--', ...paths] : []
+  const devices = ['con', 'prn', 'aux', 'nul', 'com[1-9]', 'lpt[1-9]']
+  return [
+    '--',
+    ...(paths.length ? paths : [':/']),
+    ...devices.flatMap((name) => [
+      `:(top,exclude,icase,glob)**/${name}`,
+      `:(top,exclude,icase,glob)**/${name}.*`,
+    ]),
+  ]
+}
+
 const DEFAULT_MAX_BYTES = 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 10_000
 
@@ -289,7 +307,12 @@ export class GitService {
     env: NodeJS.ProcessEnv,
     signal?: AbortSignal,
   ): Promise<Result<string, GitError>> {
-    const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env, signal })
+    const added = await this.#run(
+      cwd,
+      ['add', '--all', ...snapshotPathspecs([])],
+      DEFAULT_MAX_BYTES,
+      { env, signal },
+    )
     if (!added.ok) return added
     const tree = await this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env, signal })
     return tree.ok ? ok(tree.value.stdout.trim()) : tree
@@ -354,7 +377,12 @@ export class GitService {
     )
     const against = head.ok ? 'HEAD' : EMPTY_TREE
     return this.#withScratchIndex(cwd, async (env) => {
-      const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
+      const added = await this.#run(
+        cwd,
+        ['add', '--all', ...snapshotPathspecs([])],
+        DEFAULT_MAX_BYTES,
+        { env },
+      )
       if (!added.ok) return added
       const diff = await this.#run(cwd, ['diff', against], DIFF_MAX_BYTES, { env })
       if (!diff.ok) {
@@ -420,7 +448,12 @@ export class GitService {
     const safe = assertSafeRev(gitRef)
     if (!safe.ok) return safe
     const worktree = await this.#withScratchIndex(cwd, async (env) => {
-      const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
+      const added = await this.#run(
+        cwd,
+        ['add', '--all', ...snapshotPathspecs([])],
+        DEFAULT_MAX_BYTES,
+        { env },
+      )
       if (!added.ok) return added
       return this.#restoreScoped(cwd, gitRef, ['--staged', '--worktree'], env)
     })

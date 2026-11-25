@@ -18,7 +18,7 @@ import type { Session } from '@ari/contracts/session'
 import { createLogger } from '@ari/shared/logger'
 import { pathKey } from '@ari/shared/paths'
 import type { ResultDiffContents, ResultDiffSelection } from '@ari/contracts/orchestration'
-import { GitService } from './git-service'
+import { GitService, snapshotPathspecs } from './git-service'
 import { RepositoryGit } from './repository-git'
 import { parseReviewFiles } from './git-review-files'
 import { branchBelongsToSession, orchestrationBranch } from './orchestration-branch'
@@ -82,7 +82,7 @@ export class ManagedWorkspaces {
       }
       const head = verifiedHead.value.stdout.trim()
       await this.#run(cwd, ['read-tree', 'HEAD'], env)
-      await this.#run(cwd, ['add', '--all', '--', '.'], env)
+      await this.#run(cwd, ['add', '--all', ...snapshotPathspecs(['.'])], env)
       const tree = (await this.#run(cwd, ['write-tree'], env)).trim()
       const commit = (
         await this.#run(
