@@ -6,7 +6,7 @@ import { ONE_SHOT_PROVIDER_CAPABILITIES } from '../driver'
 import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
-import { teardownChild } from '../teardown'
+import { interruptChild, teardownChild } from '../teardown'
 import { createGrokPromptFile } from './prompt-file'
 
 const log = createLogger('providers:grok')
@@ -81,9 +81,7 @@ export class GrokDriver implements Driver {
     return {
       capabilities: () => ONE_SHOT_PROVIDER_CAPABILITIES,
       start: () => ({ [Symbol.asyncIterator]: () => iterator }),
-      interrupt: () => {
-        if (!child.killed) child.kill()
-      },
+      interrupt: () => interruptChild(child),
       dispose: async () => {
         await teardownChild(child)
         await promptFile.dispose()
