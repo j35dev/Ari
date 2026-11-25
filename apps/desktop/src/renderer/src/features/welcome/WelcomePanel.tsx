@@ -12,6 +12,7 @@ import { rpc } from '../../lib/rpc'
 import { anchorBelow, type MenuAnchor } from '../../shell/ContextMenu'
 import type { SessionStartIntent } from '../../shell/session-start-focus'
 import { DitherScene } from '../scene/DitherScene'
+import { resolveChord } from '../settings/KeybindingsSettings'
 
 const log = createLogger('welcome')
 const CHECK_TIMEOUT_MS = 15_000
@@ -405,7 +406,9 @@ export function WelcomePanel({
           <div className="flex w-full flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-border px-6 py-3 text-xs text-fg-subtle">
             {KEYBOARD_HINTS.map(([keys, label]) => (
               <span key={keys} className="flex items-center gap-1.5">
-                <kbd className="font-mono text-[11px] text-fg-muted">{keys}</kbd>
+                <kbd className="font-mono text-[11px] text-fg-muted">
+                  {resolveChord(keys).join('+')}
+                </kbd>
                 <span>{label}</span>
               </span>
             ))}
