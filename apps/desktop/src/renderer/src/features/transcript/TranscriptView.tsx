@@ -35,6 +35,7 @@ import { ProviderSwitchDivider } from './ProviderSwitchDivider'
 import { useLazyRows } from './use-lazy-rows'
 import { attachmentDataUrl } from './attachment-urls'
 import { useSessionClient } from '../session/session-client'
+import { WorkingPhaseContext, type WorkingPhase } from '../moment/working-phase'
 import type {
   DelegatedChild,
   GroupedRow,
@@ -89,6 +90,13 @@ function estimateUncached(row: TranscriptRow): number {
 function isAgentWake(message: Message): boolean {
   const kind = message.origin?.kind
   return kind === 'completion' || kind === 'question' || kind === 'coordination'
+}
+
+/** Share of the remaining distance the tail-follow closes each frame. */
+const GLIDE_FRACTION = 0.24
+
+function prefersReducedMotion(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 function scrollToBottom(el: HTMLElement, behavior: ScrollBehavior): void {
@@ -212,7 +220,6 @@ export function TranscriptView({
       turnDiffs,
       groupedRef.current,
       subagentCalls,
-      chatStyle !== 'terminal',
     )
     return insertProviderSwitchRows(
       insertDelegationRows(groupedRef.current, delegations ?? []),
@@ -232,6 +239,15 @@ export function TranscriptView({
     activeRow && activeRow.kind !== 'delegation' && activeRow.kind !== 'provider-switch'
       ? rowTurnId(activeRow)
       : null
+  // What the working indicator says: nothing of the reply yet reads as
+  // thinking; a live thought says so itself.
+  const workingPhase = useMemo<WorkingPhase>(() => {
+    if (!activeRow || activeRow.kind === 'delegation' || activeRow.kind === 'provider-switch')
+      return 'Working'
+    if (activeRow.kind === 'thinking') return chatStyle === 'terminal' ? 'Thinking' : null
+    if (activeRow.kind === 'markdown') return activeRow.role === 'user' ? 'Thinking' : 'Writing'
+    return 'Working'
+  }, [activeRow, chatStyle])
   // The last row of each turn, keyed by row key: where its diff card attaches.
   const turnEnds = useMemo(() => {
     const ends = new Map<string, string>()
@@ -253,6 +269,9 @@ export function TranscriptView({
   const watchesTurns = onTurnInView !== undefined
   const seenRowsRef = useRef(new Set<string>())
   const freshRowsRef = useRef(new Set<string>())
+  // Rows that first appeared while this view watched, so their prose may be
+  // revealed from the start. Unlike `freshRows`, never cleared.
+  const bornLiveRef = useRef(new Set<string>())
   const historyLoadedRef = useRef(false)
   const [, settleEntrance] = useReducer((count: number) => count + 1, 0)
 
@@ -344,15 +363,46 @@ export function TranscriptView({
     return () => observer.disconnect()
   }, [land])
 
-  // Jumps rather than glides: a smooth scroll restarted on every streamed
-  // flush kept the compositor busy and fired a storm of scroll events.
-  const followTail = useCallback((): void => {
+  // Lands on the tail at once: for re-pinning and for views just shown.
+  const snapTail = useCallback((): void => {
     const scroller = scrollRef.current
     if (!scroller || !atBottomRef.current) return
     const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
     if (Math.abs(scroller.scrollTop - max) <= 1) return
     scrollToBottom(scroller, 'auto')
   }, [])
+
+  // Follows streamed growth with one easing loop of our own rather than a
+  // browser smooth scroll: those restarted on every flush, kept the
+  // compositor busy and fired a storm of scroll events. Each frame closes a
+  // fraction of the gap, so a wrapped line slides up instead of jumping and
+  // the loop stops the moment the reader scrolls away. A gap taller than the
+  // viewport is not animated.
+  const glideRef = useRef<number | null>(null)
+  const followTail = useCallback((): void => {
+    if (glideRef.current !== null) return
+    const step = (): void => {
+      glideRef.current = null
+      const scroller = scrollRef.current
+      if (!scroller || !atBottomRef.current) return
+      const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+      const gap = max - scroller.scrollTop
+      if (gap <= 1) return
+      if (gap > scroller.clientHeight || prefersReducedMotion()) {
+        scroller.scrollTop = max
+        return
+      }
+      scroller.scrollTop += Math.max(1, Math.ceil(gap * GLIDE_FRACTION))
+      glideRef.current = requestAnimationFrame(step)
+    }
+    glideRef.current = requestAnimationFrame(step)
+  }, [])
+  useEffect(
+    () => () => {
+      if (glideRef.current !== null) cancelAnimationFrame(glideRef.current)
+    },
+    [],
+  )
 
   // Follow the tail while pinned. Observe the column so streamed rows,
   // Shiki and code-fence growth stick after layout has already run, instead
@@ -395,7 +445,7 @@ export function TranscriptView({
 
   // The working indicator sits outside the observed column, and re-pinning
   // has to land on the tail at once rather than at the next resize.
-  useLayoutEffect(followTail, [followTail, atBottom, hasWorking])
+  useLayoutEffect(snapTail, [snapTail, atBottom, hasWorking])
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>): void => {
     if (event.deltaY >= 0 || !atBottomRef.current) return
@@ -434,8 +484,12 @@ export function TranscriptView({
   // re-renders constantly) does not drop the class and cut the motion short.
   const seenRows = seenRowsRef.current
   const freshRows = freshRowsRef.current
+  const bornLive = bornLiveRef.current
   for (const row of rows) {
-    if (historyLoadedRef.current && !hidden && !seenRows.has(row.key)) freshRows.add(row.key)
+    if (historyLoadedRef.current && !hidden && !seenRows.has(row.key)) {
+      freshRows.add(row.key)
+      bornLive.add(row.key)
+    }
     seenRows.add(row.key)
   }
   if (!loading) historyLoadedRef.current = true
@@ -517,6 +571,7 @@ export function TranscriptView({
                             row.resultsByCallId.get(call.callId)?.isPartial === true,
                         )))
                   }
+                  reveal={bornLive.has(row.key)}
                   terminal={chatStyle === 'terminal'}
                   onDiffComment={onDiffComment}
                   onRetryTurnDiff={onRetryTurnDiff}
@@ -544,8 +599,10 @@ export function TranscriptView({
         </span>
 
         {working ? (
-          <div className="ari-chat-column mt-3" aria-live="polite">
-            {working}
+          <div className="ari-chat-column mt-3 flex h-6 items-center" aria-live="polite">
+            <WorkingPhaseContext.Provider value={workingPhase}>
+              {working}
+            </WorkingPhaseContext.Provider>
           </div>
         ) : null}
 
@@ -614,6 +671,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
   readAloud,
   regenerateDisabled,
   active,
+  reveal,
   terminal,
   onDiffComment,
   onRetryTurnDiff,
@@ -628,6 +686,8 @@ const TranscriptRowView = memo(function TranscriptRowView({
   sessionTitle?: (id: string) => string | undefined
   onOpenSession?: (id: string) => void
   index: number
+  /** The row arrived while this view watched; its prose may reveal from the start. */
+  reveal: boolean
   onUndoTurn?: (turnId: string) => Promise<boolean>
   undoDisabled: boolean
   onEditUserMessage?: (text: string) => void
@@ -649,6 +709,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
     modelLabel,
     sessionId,
     active,
+    reveal,
     terminal,
     onEditUserMessage,
     onRegenerate,
@@ -682,6 +743,7 @@ function renderRowBody({
   modelLabel,
   sessionId,
   active,
+  reveal,
   terminal,
   onEditUserMessage,
   onRegenerate,
@@ -700,6 +762,7 @@ function renderRowBody({
   modelLabel?: string
   sessionId: string
   active: boolean
+  reveal: boolean
   terminal: boolean
   onUndoTurn?: (turnId: string) => Promise<boolean>
   undoDisabled: boolean
@@ -763,9 +826,15 @@ function renderRowBody({
                 {row.text ?? ''}
               </div>
             ) : (
-              <MarkdownBlock text={writtenReply(row.text ?? '')} streaming={active} />
+              <MarkdownBlock
+                text={writtenReply(row.text ?? '')}
+                streaming={active}
+                reveal={reveal}
+              />
             )}
-            {row.isLastOfMessage && row.messageId ? (
+            {/* The footer waits for the reply to finish: under a paragraph that
+                is still growing it would ride down the page with every line. */}
+            {row.isLastOfMessage && row.messageId && !active ? (
               <MessageFooter
                 message={{
                   id: row.messageId,
@@ -789,7 +858,7 @@ function renderRowBody({
       ) : row.kind === 'notice' ? (
         <NoticeNote text={row.text ?? ''} />
       ) : row.kind === 'thinking' ? (
-        <ThinkingBlock text={row.text ?? ''} expanded={terminal} />
+        <ThinkingBlock text={row.text ?? ''} expanded={terminal} live={active} />
       ) : null}
     </>
   )

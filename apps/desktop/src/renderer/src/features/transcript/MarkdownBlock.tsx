@@ -5,6 +5,8 @@ import { createCodeStream, type CodeStream } from './code-stream'
 import { highlightCode, highlightCodeSync, shikiInner } from './highlight'
 import { createMarkdownStream, type MarkdownStream } from './markdown-stream'
 import { morphNode } from './morph-dom'
+import { useSmoothText } from './use-smooth-text'
+import { closeOpenInline } from './close-inline'
 
 /**
  * Longest code block re-highlighted on every flush. Past this a flush would
@@ -214,24 +216,39 @@ const MarkdownText = memo(function MarkdownText({
   )
 })
 
-/** Visual fences are React-owned; ordinary Markdown retains its incremental DOM renderer. */
+/**
+ * Visual fences are React-owned; ordinary Markdown retains its incremental DOM
+ * renderer.
+ *
+ * A reply being written is paced (`useSmoothText`) so it flows in by words
+ * instead of landing in whatever slabs the provider sent, and its half-written
+ * last paragraph has its open markers balanced (`closeOpenInline`). Pacing is
+ * for blocks born live in the transcript (`reveal`): one already on screen
+ * when the view mounted is never re-typed.
+ */
 export const MarkdownBlock = memo(function MarkdownBlock({
   text,
   streaming = false,
+  reveal = false,
 }: {
   text: string
   streaming?: boolean
+  reveal?: boolean
 }) {
-  const parts = useMemo(() => splitVisualizations(text), [text])
+  const paced = useSmoothText(text, streaming, reveal)
+  // `reveal` off, `paced` is `text` and only the marker balancing applies.
+  const live = streaming || paced !== text
+  const shown = live ? closeOpenInline(paced) : text
+  const parts = useMemo(() => splitVisualizations(shown), [shown])
   if (parts.length === 1 && parts[0]?.kind === 'markdown')
-    return <MarkdownText text={text} streaming={streaming} />
+    return <MarkdownText text={shown} streaming={live} />
   return (
     <div className="ari-visual-reply">
       {parts.map((part, i) =>
         part.kind === 'markdown' ? (
-          <MarkdownText key={i} text={part.text} streaming={streaming} />
+          <MarkdownText key={i} text={part.text} streaming={live} />
         ) : (
-          <Visualization key={i} source={part.source} pending={streaming && !part.complete} />
+          <Visualization key={i} source={part.source} pending={live && !part.complete} />
         ),
       )}
     </div>
