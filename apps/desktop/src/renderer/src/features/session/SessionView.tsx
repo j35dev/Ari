@@ -97,6 +97,7 @@ import {
 } from './transcript-store'
 import './session-canvas.css'
 import { TurnErrorBanner } from './TurnErrorBanner'
+import { isStopEscape, transcriptOwnsEscape } from './escape-stop'
 import { ElementChips } from '../browser/ElementChips'
 import {
   browserPicksState,
@@ -2357,7 +2358,23 @@ function SessionViewContent({
             Started by Aria
           </button>
         ) : null}
-        <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
+        {/* Focusable so a click in the transcript keeps keys here: Esc on it
+            stops a running turn, as it does in the composer. */}
+        <div
+          tabIndex={-1}
+          className={`min-h-0 flex-1 focus:outline-none ${centered ? 'invisible' : ''}`}
+          inert={centered}
+          onKeyDown={(event) => {
+            if (
+              running &&
+              isStopEscape(event) &&
+              transcriptOwnsEscape(event.currentTarget, event.target)
+            ) {
+              event.preventDefault()
+              handleStop()
+            }
+          }}
+        >
           <SubagentLinksContext.Provider value={subagentLinks}>
             <StoreTranscript
               readAloud={readAloud}

@@ -53,6 +53,7 @@ import {
 } from './draft-recovery-store'
 import './composer.css'
 import { parseSessionViewKey, useSessionClient } from '../session/session-client'
+import { isStopEscape } from '../session/escape-stop'
 
 /**
  * External draft injection (M19.4 edit-and-resend): a changed {@link nonce}
@@ -406,6 +407,8 @@ export function Composer({
     [commandQuery, commands],
   )
   const commandMenuOpen = commandQuery !== null && !dismissed
+  const popupOpen =
+    commandMenuOpen || (token?.kind === 'mention' && !dismissed && mentionItems.length > 0)
   const onCommandMenuRef = useRef(onCommandMenu)
   onCommandMenuRef.current = onCommandMenu
   useEffect(() => {
@@ -864,6 +867,13 @@ export function Composer({
         stashDraft()
       }
       const plain = !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
+      // Esc stops a running turn. An open popup takes it first; one with no
+      // rows (just a note) does not listen, so the Esc closes it here instead.
+      if (running && onStop && isStopEscape(e)) {
+        e.preventDefault()
+        if (popupOpen) setDismissed(true)
+        else onStop()
+      }
       // Alt+Up at the start of the field pulls the newest queued text message
       // back into the composer. Imaged rows stay queued: an edit draft is text.
       if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowUp') {
@@ -884,7 +894,7 @@ export function Composer({
         if (recallPrompt(e.key === 'ArrowUp' ? 'older' : 'newer')) e.preventDefault()
       }
     },
-    [send, stashDraft, recallPrompt, queued, caret, onEditQueued],
+    [send, stashDraft, recallPrompt, queued, caret, onEditQueued, running, onStop, popupOpen],
   )
 
   const closePopup = useCallback(() => setDismissed(true), [])
