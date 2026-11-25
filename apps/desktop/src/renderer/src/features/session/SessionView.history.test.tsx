@@ -525,4 +525,26 @@ describe('SessionView history recovery', () => {
     expect(screen.queryByText('second session')).toBeNull()
     expect(screen.getByRole('button', { name: 'Retry history' })).toBeVisible()
   })
+
+  it('opens from a saved snapshot and does not repeat live text it already holds', async () => {
+    render(view())
+    await screen.findByLabelText('Message')
+    const saved = (event: JournalEvent) =>
+      JSON.stringify((event as Extract<JournalEvent, { type: 'user.message.added' }>).message)
+    // Published while the snapshot was being read, so it is in both.
+    emit({ event: message(2, 'saved and live') })
+    emit({
+      replay: true,
+      snapshot: {
+        seq: 2,
+        messages: [saved(message(1, 'saved first')), saved(message(2, 'saved and live'))],
+        controls: [],
+      },
+    })
+    emit({ event: message(3, 'after snapshot') })
+    emit({ replayDone: true, replayOutcome: 'complete', liveTurnId: null })
+    expect(await screen.findByText('after snapshot')).toBeVisible()
+    expect(screen.getByText('saved first')).toBeVisible()
+    expect(screen.getAllByText('saved and live')).toHaveLength(1)
+  })
 })

@@ -468,7 +468,18 @@ export interface SessionEventFrame {
    * long sessions so neither side of the pipe serializes in bulk.
    */
   events?: unknown[]
-  /** True on the frame carrying `events`. */
+  /**
+   * A local open, sent instead of `events`: the saved messages and every
+   * other event as of `seq`, as JSON text. Live events at or below `seq`
+   * are already in it. A delegation card's `anchor` is the transcript part
+   * it follows, `{ messageId, parts }`.
+   */
+  snapshot?: {
+    seq: number
+    messages: string[]
+    controls: { json: string; anchor: string | null }[]
+  }
+  /** True on the frame carrying `events` or `snapshot`. */
   replay?: boolean
   /** Sentinel: the replay attempt ended; this alone does not imply success. */
   replayDone?: boolean
