@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -114,9 +115,43 @@ describe('BrowserPanel', () => {
     expect(invokeFn).not.toHaveBeenCalledWith('browser.close', { id: 'agent:sess_a' })
     await waitFor(() => expect(screen.getByLabelText('Address')).toHaveValue(''))
 
-    // A page nothing was loaded into is not kept around.
+    // A page nothing was loaded into is not kept around; main checks that it
+    // is still blank, since the agent may have loaded it meanwhile.
     unmount()
-    expect(invokeFn).toHaveBeenCalledWith('browser.close', { id: 'agent:sess_b' })
+    expect(invokeFn).toHaveBeenCalledWith('browser.close', { id: 'agent:sess_b', ifBlank: true })
+  })
+
+  it("never destroys the agent's page when the panel remounts before it has heard back", async () => {
+    // The agent's navigate is what opens the panel. React's StrictMode (and any
+    // quick remount) unmounts the panel before `browser.open` answers, which
+    // used to read as "blank" and destroy the page the agent had just loaded.
+    invokeFn.mockImplementation(async (method: string, params: { id: string }) => {
+      if (method === 'browser.open')
+        return {
+          id: params.id,
+          url: 'http://localhost:8765/oddity-museum.html',
+          title: 'Oddity Museum',
+          canGoBack: false,
+          canGoForward: false,
+          loading: false,
+          error: null,
+        }
+      if (method === 'browser.capture') return { dataUrl: STILL }
+      return {}
+    })
+
+    render(
+      <StrictMode>
+        <BrowserPanel sessionId="sess_a" />
+      </StrictMode>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Address')).toHaveValue(
+        'http://localhost:8765/oddity-museum.html',
+      ),
+    )
+    expect(invokeFn).not.toHaveBeenCalledWith('browser.close', { id: 'agent:sess_a' })
   })
 
   describe('with a page loaded', () => {
