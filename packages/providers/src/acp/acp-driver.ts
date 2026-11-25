@@ -142,9 +142,11 @@ export async function createAcpAdapter(
       resolve: (outcome: unknown) => void
     }
   >()
-  // Starts as the session's mode and widens when the user answers an approval
-  // with a persistent grant; requests later in the turn are judged against it.
-  let permissionMode = session.permissionMode
+  const permissionMode = session.permissionMode
+  /** The session's mode, or an "always allow" the user gave this kind of tool. */
+  const allowsWithoutAsking = (kind: string | undefined): boolean =>
+    autoAllows(permissionMode, kind) ||
+    (kind !== undefined && ALWAYS_ALLOWED_KINDS.get(session.sessionId)?.has(kind) === true)
   const pendingInputs = new Map<
     string,
     {
@@ -205,7 +207,7 @@ export async function createAcpAdapter(
     // on the user. Answer inline with the agent's own allow option, mirroring
     // respondApproval's allow preference; an agent that offers no allow option
     // gets the same cancelled outcome a dismissal produces.
-    if (autoAllows(permissionMode, request.toolCall?.kind)) {
+    if (allowsWithoutAsking(request.toolCall?.kind)) {
       const optionId = optionFor(request.options, ['allow_once', 'allow_always'])
       log.debug('acp: auto-approved by permission mode', {
         mode: permissionMode,
@@ -777,10 +779,11 @@ export async function createAcpAdapter(
       pendingPermissions.delete(approvalId)
       const optionId =
         typeof decision === 'string' ? optionForKind(pending.options, decision) : decision.optionId
-      // The agent scopes a persistent grant to the one tool it asked about and
-      // keeps it in a process that ends with the turn, so on its own "always"
-      // lasts until the next tool. Widen the session instead. A mode switch
-      // (Claude's plan exit) reuses the kind to name a mode, not a grant.
+      // The agent keeps its own persistent grant only as long as its process,
+      // so Ari remembers it for this kind of tool for the rest of the session,
+      // as the Claude driver's session rules do. It never widens the session's
+      // permission mode. A mode switch (Claude's plan exit) reuses the kind to
+      // name a mode, not a grant; "other" names no tool in particular.
       const chosen = (pending.options ?? []).find((option) => option.optionId === optionId)
       // A plain "allow" can fall back to the agent's only allow option, which
       // may be a persistent one. That is not the user asking for a wider grant.
@@ -788,20 +791,13 @@ export async function createAcpAdapter(
       if (
         askedForAlways &&
         chosen?.kind === 'allow_always' &&
+        pending.kind !== undefined &&
         pending.kind !== 'switch_mode' &&
-        permissionMode !== 'full'
+        pending.kind !== 'other'
       ) {
-        permissionMode = 'full'
-        // The agent words its option for one tool ("Always allow Read"), so
-        // say what the answer covers here.
-        push([
-          { type: 'permission-mode', mode: 'full' },
-          {
-            type: 'notice',
-            message:
-              'Always allow now covers every tool in this session. Ari will not ask again until you change the permission mode.',
-          },
-        ])
+        const kinds = ALWAYS_ALLOWED_KINDS.get(session.sessionId) ?? new Set<string>()
+        kinds.add(pending.kind)
+        ALWAYS_ALLOWED_KINDS.set(session.sessionId, kinds)
       }
       pending.resolve(
         optionId !== undefined
@@ -854,7 +850,7 @@ export async function createAcpAdapter(
           {
             // Nobody can answer between turns: the session's mode decides.
             onRequestPermission: (request) => {
-              const optionId = autoAllows(permissionMode, request.toolCall?.kind)
+              const optionId = allowsWithoutAsking(request.toolCall?.kind)
                 ? optionFor(request.options, ['allow_once', 'allow_always'])
                 : undefined
               return Promise.resolve(
@@ -1038,6 +1034,13 @@ const MUTATING_KINDS = new Set(['edit', 'move', 'delete'])
  * Whether the session's permission mode answers this request without the user.
  * `full` approves everything; `allow-edits` only the file-mutation kinds.
  */
+/**
+ * Tool kinds (ACP `toolCall.kind`) the user answered with an "always allow",
+ * per Ari session. Kept here rather than in the agent, whose own grant ends
+ * with its process.
+ */
+const ALWAYS_ALLOWED_KINDS = new Map<string, Set<string>>()
+
 function autoAllows(mode: PermissionMode, kind: string | undefined): boolean {
   if (mode === 'full') return true
   if (mode === 'allow-edits') return typeof kind === 'string' && MUTATING_KINDS.has(kind)
@@ -1151,9 +1154,10 @@ function resolveSelectors(
   return LEARNED_SELECTORS.get(label) ?? { configOptions: [], availableModes: [] }
 }
 
-/** Test seam: drops the learned vocabulary so cases cannot leak into each other. */
+/** Test seam: drops the learned vocabulary and grants so cases cannot leak into each other. */
 export function __resetLearnedAcpSelectors(): void {
   LEARNED_SELECTORS.clear()
+  ALWAYS_ALLOWED_KINDS.clear()
 }
 
 /**
