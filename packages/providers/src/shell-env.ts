@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { delimiter, join } from 'node:path'
 import { createLogger } from '@ari/shared/logger'
+import { interruptChild } from './teardown'
 import { realDetectEnvironment } from './types'
 import type { DetectEnvironment } from './types'
 
@@ -141,7 +142,9 @@ function readPathFromShell(
     })
     const timer = setTimeout(() => {
       if (!settled) {
-        child.kill()
+        // An interactive shell ignores SIGTERM, so a bare kill() left it
+        // running; the teardown ladder escalates.
+        interruptChild(child)
         done(null)
       }
     }, timeoutMs)
