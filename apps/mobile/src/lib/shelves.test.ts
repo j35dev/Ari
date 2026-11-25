@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RemoteAttention } from '@ari/contracts/remote'
-import type { SessionSummary } from '@ari/contracts/rpc'
+import type { RemoteSessionSummary as SessionSummary } from '@ari/contracts/remote'
 import { shelve, type ShelfFilter } from './shelves'
 
 const projects = [
@@ -50,7 +50,7 @@ describe('the home list', () => {
     )
     expect(shelves.map((shelf) => [shelf.title, shelf.rows.map((row) => row.session.id)])).toEqual([
       ['Needs you', ['blocked']],
-      ['Working', ['busy']],
+      ['Running', ['busy']],
       ['Pinned', ['pinned']],
       ['Recent', ['new', 'old']],
     ])
@@ -66,15 +66,66 @@ describe('the home list', () => {
             { inputId: 'i', prompt: 'Which branch?', choicesJson: null },
           ] as unknown as RemoteAttention['items'][number]['pendingInputs'],
         }),
-        attention('c', { error: 'The provider signed out.', status: 'error' }),
       ],
       everything,
     )
     expect(needsYou?.rows.map((row) => row.ask)).toEqual([
       'Wants to use Bash, and 1 more',
       'Which branch?',
-      'The provider signed out.',
     ])
+  })
+
+  it('files a failed session with the recent ones instead of claiming attention forever', () => {
+    const shelves = shelve(
+      [session('broken', { status: 'error' })],
+      [attention('broken', { error: 'The provider signed out.', status: 'error' })],
+      everything,
+    )
+    expect(shelves.map((shelf) => [shelf.title, shelf.rows.map((row) => row.state)])).toEqual([
+      ['Recent', ['failed']],
+    ])
+  })
+
+  it('never shows a turn the computer is not running as work in progress', () => {
+    const shelves = shelve(
+      [
+        session('orphaned', { status: 'running', live: false }),
+        session('busy', { status: 'running', live: true }),
+        // A desktop from before `live` was reported is believed.
+        session('older', { status: 'running' }),
+        session('lead'),
+        session('dead child', { parentSessionId: 'lead', status: 'running', live: false }),
+      ],
+      [],
+      everything,
+    )
+    expect(
+      shelves.map((shelf) => [shelf.title, shelf.rows.map((row) => [row.session.id, row.state])]),
+    ).toEqual([
+      [
+        'Running',
+        [
+          ['busy', 'running'],
+          ['older', 'running'],
+        ],
+      ],
+      [
+        'Recent',
+        [
+          ['orphaned', 'stalled'],
+          ['lead', 'idle'],
+        ],
+      ],
+    ])
+    expect(shelves[1]?.rows[1]?.agents).toEqual({ total: 1, working: 0 })
+  })
+
+  it('treats an archived session as finished whatever its journal says', () => {
+    const [archived] = shelve([session('gone', { archived: true, status: 'running' })], [], {
+      ...everything,
+      archived: true,
+    })
+    expect(archived?.rows.map((row) => row.state)).toEqual(['idle'])
   })
 
   it('lists a blocked session the session list has not caught up with yet', () => {
@@ -95,7 +146,9 @@ describe('the home list', () => {
     expect(shelves[0]?.title).toBe('Needs you')
     expect(shelves[0]?.rows.map((row) => [row.session.id, row.ask])).toEqual([
       ['blocked', 'Waiting for your approval'],
-      ['broken', 'Stopped with an error'],
+    ])
+    expect(shelves[1]?.rows.map((row) => [row.session.id, row.state])).toEqual([
+      ['broken', 'failed'],
     ])
   })
 
@@ -125,7 +178,7 @@ describe('the home list', () => {
     const shelves = shelve(sessions, [], everything)
     expect(shelves.map((shelf) => [shelf.title, shelf.rows.map((row) => row.session.id)])).toEqual([
       // Idle itself, but its agents are still at it.
-      ['Working', ['lead']],
+      ['Running', ['lead']],
       ['Recent', ['solo']],
     ])
     expect(shelves[0]?.rows[0]?.agents).toEqual({ total: 3, working: 2 })
