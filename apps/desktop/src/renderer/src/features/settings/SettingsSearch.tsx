@@ -88,13 +88,13 @@ export const SETTINGS_SEARCH_INDEX = [
     section: 'settings-providers',
     label: 'Detected providers',
     keywords:
-      'claude codex opencode grok pi hermes qoder muse code meta optional detect rescan health install auth badge',
+      'claude codex opencode grok pi hermes qoder muse code meta antigravity agy google optional detect rescan health install auth badge',
   },
   {
     section: 'settings-providers',
     label: 'Turn providers on or off',
     keywords:
-      'enable disable toggle hide agent model picker optional claude codex opencode grok pi hermes qoder muse code meta',
+      'enable disable toggle hide agent model picker optional claude codex opencode grok pi hermes qoder muse code meta antigravity agy google',
   },
   {
     section: 'settings-providers',

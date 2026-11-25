@@ -64,6 +64,21 @@ function deps(over: Partial<AuthProbeDeps> = {}): AuthProbeDeps {
 }
 
 describe('a sign-in check that straddles an account switch', () => {
+  it('offers the official Antigravity login when its ACP wall has no terminal metadata', async () => {
+    const state = new ProviderAuthState()
+    state.recordWall('antigravity', 'Antigravity', [])
+    const methods = await resolveProviderLogins(
+      'antigravity',
+      deps({
+        detections: async () => detection({ kind: 'antigravity', binaryPath: '/opt/agy' }),
+      }),
+      state,
+    )
+    expect(methods.logins).toContainEqual(
+      expect.objectContaining({ command: '/opt/agy', args: ['acp', '--login'] }),
+    )
+  })
+
   it('offers Muse device login when its ACP wall has no runnable terminal metadata', async () => {
     const state = new ProviderAuthState()
     state.recordWall('muse', 'Muse Code', [])

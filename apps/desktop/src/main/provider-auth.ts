@@ -83,7 +83,17 @@ export function toLoginMethods(
             args: ['login'],
           },
         ]
-      : []
+      : kind === 'antigravity' && binaryPath
+        ? [
+            {
+              methodId: 'antigravity-cli-login',
+              name: 'Antigravity',
+              description: 'Sign in with Antigravity using the CLI authentication flow.',
+              command: binaryPath,
+              args: ['acp', '--login'],
+            },
+          ]
+        : []
   return offered.map((login) => ({
     methodId: login.methodId,
     name: login.name,
@@ -178,7 +188,7 @@ export async function probeProviderAuth(
   const wall = state.wallFor(kind)
   if (wall !== null) {
     const binaryPath =
-      kind === 'muse' && wall.logins.length === 0
+      (kind === 'muse' || kind === 'antigravity') && wall.logins.length === 0
         ? (await deps.detections()).find(
             (row) =>
               row.kind === kind && row.enabled !== false && row.transport?.available !== false,

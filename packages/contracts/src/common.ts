@@ -18,6 +18,7 @@ export const driverKindSchema = z.enum([
   'hermes',
   'qoder',
   'muse',
+  'antigravity',
   'ari-core',
 ])
 export type DriverKind = z.infer<typeof driverKindSchema>

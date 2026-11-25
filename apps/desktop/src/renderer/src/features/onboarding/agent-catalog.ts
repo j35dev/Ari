@@ -15,6 +15,7 @@ const ACCOUNTS: Partial<Record<DriverKind, string>> = {
   qoder: 'Your Qoder account',
   hermes: 'Your Nous account',
   muse: 'Your Meta account',
+  antigravity: 'Your Google account or Gemini API key',
 }
 
 /** Shown when nothing is installed: what each agent needs before it can work. */
@@ -24,7 +25,7 @@ export const RECOMMENDED: readonly { kind: CliAgent; needs: string }[] = [
 ]
 
 /** Installable agents beyond the two recommended ones, most familiar first. */
-export const OTHER_AGENTS: readonly CliAgent[] = ['opencode', 'grok', 'pi', 'qoder']
+export const OTHER_AGENTS: readonly CliAgent[] = ['opencode', 'grok', 'pi', 'qoder', 'antigravity']
 
 /** Preference when several agents are ready: the order Ari pre-selects in. */
 const PREFERENCE: readonly DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'qoder']

@@ -82,7 +82,8 @@ function vendorInstaller(url: string, platform: NodeJS.Platform): string[] {
 }
 
 function nativeCommands(kind: DriverKind, binaryPath: string | null, platform: NodeJS.Platform) {
-  const binary = binaryPath ?? (kind === 'qoder' ? 'qodercli' : kind)
+  const binary =
+    binaryPath ?? (kind === 'qoder' ? 'qodercli' : kind === 'antigravity' ? 'agy' : kind)
   const installer = (unix: string, windows: string) =>
     vendorInstaller(platform === 'win32' ? windows : unix, platform)
   switch (kind) {
@@ -123,6 +124,14 @@ function nativeCommands(kind: DriverKind, binaryPath: string | null, platform: N
       const install = installer('https://dev.meta.ai/install.sh', 'https://dev.meta.ai/install.ps1')
       return { install, upgrade: install }
     }
+    case 'antigravity':
+      return {
+        install: installer(
+          'https://antigravity.google/cli/install.sh',
+          'https://antigravity.google/cli/install.ps1',
+        ),
+        upgrade: [binary, 'update'],
+      }
     default:
       return null
   }

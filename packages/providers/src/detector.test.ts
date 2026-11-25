@@ -34,6 +34,28 @@ function makeEnv(overrides: Partial<DetectEnvironment> = {}): DetectEnvironment 
 }
 
 describe('findBinary', () => {
+  it('finds Antigravity in its Windows installer directory without confusing it with the IDE', async () => {
+    const localAppData = join(dir, 'localappdata')
+    const binDir = join(localAppData, 'agy', 'bin')
+    const ideDir = join(dir, 'antigravity-ide')
+    await mkdir(binDir, { recursive: true })
+    await mkdir(ideDir, { recursive: true })
+    await writeFileSafe(join(binDir, 'agy.exe'), '')
+    await writeFileSafe(join(ideDir, 'antigravity.exe'), '')
+    expect(
+      findBinary('antigravity', makeEnv({ platform: 'win32', localAppData, pathEnv: ideDir })),
+    ).toBe(join(binDir, 'agy.exe'))
+  })
+
+  it('finds the Antigravity CLI on a Unix PATH', async () => {
+    const binDir = join(dir, 'bin')
+    await mkdir(binDir, { recursive: true })
+    await writeFileSafe(join(binDir, 'agy'), '')
+    expect(findBinary('antigravity', makeEnv({ platform: 'linux', pathEnv: binDir }))).toBe(
+      join(binDir, 'agy'),
+    )
+  })
+
   it('finds Qoder native CLI installs beyond PATH and prefers them over the dispatcher', async () => {
     const homeDir = join(dir, 'home')
     const cliDir = join(homeDir, '.qoder', 'bin', 'qodercli')

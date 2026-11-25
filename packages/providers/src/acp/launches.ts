@@ -66,11 +66,12 @@ const NATIVE_ACP_ARGS: Partial<Record<DriverKind, string[]>> = {
   grok: ['agent', 'stdio'],
   qoder: ['--acp'],
   muse: ['acp'],
+  antigravity: ['acp'],
 }
 
 /** These runtimes use ACP exclusively in Ari; no one-shot driver is substituted. */
 export function isAcpOnlyKind(kind: DriverKind): boolean {
-  return kind === 'qoder' || kind === 'muse'
+  return kind === 'qoder' || kind === 'muse' || kind === 'antigravity'
 }
 
 /**
@@ -272,6 +273,9 @@ export function resolveAcpLaunch(
             sessionArgs: ['--trust-workspace'],
             permissionModeArgs: { full: ['--disable-sandbox'] },
           }
+        : {}),
+      ...(kind === 'antigravity'
+        ? { permissionModeArgs: { full: ['--dangerously-skip-permissions'] } }
         : {}),
     }
   }

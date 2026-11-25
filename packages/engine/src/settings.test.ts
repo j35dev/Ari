@@ -375,6 +375,7 @@ describe('SettingsStore', () => {
         .sort(),
     ).toEqual(['claude', 'codex', 'grok', 'opencode'])
     expect(Object.keys(loaded.providers).sort()).toEqual([
+      'antigravity',
       'claude',
       'codex',
       'grok',

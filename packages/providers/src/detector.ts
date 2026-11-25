@@ -30,6 +30,7 @@ const BINARY_NAMES: Record<DriverKind, string[]> = {
     'qoder.ps1',
   ],
   muse: ['muse', 'muse.cmd', 'muse.exe', 'muse.ps1'],
+  antigravity: ['agy', 'agy.exe', 'agy.cmd', 'agy.ps1'],
   'ari-core': [],
 }
 
@@ -117,6 +118,9 @@ export function findBinaries(kind: DriverKind, env: DetectEnvironment): string[]
       : []),
     ...(kind === 'muse' && env.platform === 'win32' && env.localAppData
       ? [join(env.vars?.['MUSE_INSTALL_DIR'] ?? join(env.localAppData, 'Programs', 'muse'))]
+      : []),
+    ...(kind === 'antigravity' && env.platform === 'win32' && env.localAppData
+      ? [join(env.localAppData, 'agy', 'bin')]
       : []),
     ...wellKnownDirs(env),
   ]
@@ -334,6 +338,10 @@ export function readAuthStatus(kind: DriverKind, env: DetectEnvironment): AuthPr
     case 'hermes':
       return unknownAuth(
         'No hermes auth.json in the platform config dir (override with HERMES_HOME).',
+      )
+    case 'antigravity':
+      return unknownAuth(
+        'Antigravity manages its own sign-in. Use the live check or agy acp --login.',
       )
     default:
       return unknownAuth('Ari has no credential-store layout for this CLI.')

@@ -2454,6 +2454,13 @@ describe('AcpDriver', () => {
     expect(systemInstructionsMeta('claude', 'Note.')).toEqual({ systemPrompt: { append: 'Note.' } })
     expect(systemInstructionsMeta('claude', null)).toBeNull()
     expect(systemInstructionsMeta('codex', 'Note.')).toBeNull()
+    const native = { label: 'antigravity (native ACP)', command: 'agy', args: ['acp'] }
+    expect(new AcpDriver('antigravity', native, null).systemInstructions).toBe(true)
+    expect(new AcpDriver('antigravity', null, null).systemInstructions).toBe(false)
+    expect(systemInstructionsMeta('antigravity', 'Note.')).toEqual({
+      antigravity: { systemPrompt: { append: 'Note.' } },
+    })
+    expect(systemInstructionsMeta('antigravity', null)).toBeNull()
   })
 })
 
@@ -2651,6 +2658,157 @@ describe('new ACP runtime compatibility', () => {
       }),
     )
     await adapter.dispose()
+  })
+
+  it.each([
+    ['ask', 'default'],
+    ['allow-edits', 'accept-edits'],
+    ['full', 'auto'],
+  ] as const)(
+    'applies AGY model, effort, and %s permissions using its real selectors',
+    async (permissionMode, mode) => {
+      const child = fakeChild()
+      const options = [
+        {
+          id: 'model',
+          category: 'model',
+          type: 'select',
+          currentValue: 'claude-sonnet-4-6',
+          options: [
+            { value: 'claude-sonnet-4-6', name: 'Claude Sonnet' },
+            { value: 'gemini-3.8-flash', name: 'Gemini Flash' },
+          ],
+        },
+        {
+          id: 'thought_level',
+          category: 'thought_level',
+          type: 'select',
+          currentValue: 'high',
+          options: [
+            { value: 'low', name: 'Low' },
+            { value: 'medium', name: 'Medium' },
+            { value: 'high', name: 'High' },
+          ],
+        },
+        {
+          id: 'mode',
+          category: 'mode',
+          type: 'select',
+          currentValue: 'default',
+          options: [
+            { value: 'default', name: 'Default' },
+            { value: 'accept-edits', name: 'Accept edits' },
+            { value: 'auto', name: 'Auto' },
+            { value: 'plan', name: 'Plan' },
+          ],
+        },
+      ]
+      let promptId: number | undefined
+      script(child, (method, params, id) => {
+        if (method === 'session/new') return { sessionId: 'agy1', configOptions: options }
+        if (method === 'session/set_config_option') {
+          const pick = params as { configId: string; value: string }
+          if (pick.configId === 'model')
+            child.stdout.write(
+              `${JSON.stringify({
+                jsonrpc: '2.0',
+                method: 'session/update',
+                params: {
+                  sessionId: 'agy1',
+                  update: { sessionUpdate: 'config_option_update', configOptions: options },
+                },
+              })}\n`,
+            )
+          const option = options.find((option) => option.id === pick.configId)
+          if (option) option.currentValue = pick.value
+          return { configOptions: options }
+        }
+        if (method === 'session/prompt') {
+          promptId = id
+          child.stdout.write(
+            `${JSON.stringify({
+              jsonrpc: '2.0',
+              id: 9001,
+              method: 'session/request_permission',
+              params: {
+                sessionId: 'agy1',
+                toolCall: { toolCallId: 'edit1', title: 'Write marker.txt', kind: 'edit' },
+                options: [
+                  { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
+                  { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+                ],
+              },
+            })}\n`,
+          )
+          return undefined
+        }
+        return standardAgent()(method, params, id)
+      })
+      child.stdin.on('data', (chunk: string) => {
+        for (const line of chunk.toString().trim().split('\n')) {
+          const message = JSON.parse(line) as { id?: number; method?: string }
+          if (message.id === 9001 && !message.method)
+            child.stdout.write(
+              `${JSON.stringify({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn' } })}\n`,
+            )
+        }
+      })
+      const launch = { label: 'antigravity (native ACP)', command: 'agy', args: ['acp'] }
+      const adapter = await createAcpAdapter(
+        launch,
+        { ...SESSION, permissionMode, effort: 'low' },
+        () => child,
+        undefined,
+        [],
+        systemInstructionsMeta('antigravity', 'Marker.'),
+      )
+      const events: AgentEvent[] = []
+      for await (const event of adapter.start()) {
+        events.push(event)
+        if (event.type === 'approval-requested') adapter.respondApproval(event.approvalId, 'allow')
+      }
+      expect(events.filter((event) => event.type === 'error')).toEqual([])
+      expect(events.some((event) => event.type === 'approval-requested')).toBe(
+        permissionMode === 'ask',
+      )
+      expect(child.sent).toContainEqual(
+        expect.objectContaining({
+          id: 9001,
+          result: { outcome: { outcome: 'selected', optionId: 'allow' } },
+        }),
+      )
+      for (const [configId, value] of [
+        ['model', 'gemini-3.8-flash'],
+        ['thought_level', 'low'],
+        ['mode', mode],
+      ])
+        expect(child.sent).toContainEqual(
+          expect.objectContaining({
+            method: 'session/set_config_option',
+            params: { sessionId: 'agy1', configId, value },
+          }),
+        )
+      expect(adapter.advertisedModels.map((model) => model.id)).toEqual(['gemini-3.8-flash'])
+      await adapter.dispose()
+    },
+  )
+
+  it('keeps Antigravity permission bypass out of limited sessions and background probes', () => {
+    const launch: AcpLaunch = {
+      label: 'antigravity (native ACP)',
+      command: 'agy',
+      args: ['acp'],
+      permissionModeArgs: { full: ['--dangerously-skip-permissions'] },
+    }
+    expect(launchForSession(launch, { ...SESSION, permissionMode: 'full' }).args).toEqual([
+      'acp',
+      '--dangerously-skip-permissions',
+    ])
+    expect(launchForSession(launch, SESSION).args).toEqual(['acp'])
+    expect(launchForSession(launch, { ...SESSION, permissionMode: 'allow-edits' }).args).toEqual([
+      'acp',
+    ])
+    expect(launch.args).toEqual(['acp'])
   })
 
   it('applies a runtime sandbox boundary without carrying Full into a limited turn', () => {

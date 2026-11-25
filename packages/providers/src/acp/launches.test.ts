@@ -147,6 +147,7 @@ describe('resolveAcpLaunch', () => {
   it.each([
     ['qoder', '/opt/qodercli', ['--acp']],
     ['muse', '/opt/muse', ['acp']],
+    ['antigravity', '/opt/agy', ['acp']],
   ] as const)('launches %s through its native ACP command without npx', (kind, command, args) => {
     const launch = resolveAcpLaunch(kind, { cliBinaryPath: command }, ENV)
     expect(launch).toMatchObject({ label: `${kind} (native ACP)`, command, args })
@@ -156,21 +157,25 @@ describe('resolveAcpLaunch', () => {
     })
   })
 
-  it('reports ACP-only transports unavailable when ACP is disabled', () => {
-    process.env['ARI_ACP_QODER'] = '0'
-    process.env['ARI_QODER_TRANSPORT'] = 'acp'
-    try {
-      expect(resolveAcpLaunch('qoder', { cliBinaryPath: '/opt/qodercli' }, ENV)).toBeNull()
-      expect(describeTransport('qoder', '/opt/qodercli', ENV)).toMatchObject({
-        mode: 'acp',
-        available: false,
-        label: 'ACP unavailable',
-      })
-    } finally {
-      delete process.env['ARI_ACP_QODER']
-      delete process.env['ARI_QODER_TRANSPORT']
-    }
-  })
+  it.each(['qoder', 'antigravity'] as const)(
+    'reports %s unavailable when ACP is disabled',
+    (kind) => {
+      const key = `ARI_ACP_${kind.toUpperCase()}`
+      process.env[key] = '0'
+      if (kind === 'qoder') process.env['ARI_QODER_TRANSPORT'] = 'acp'
+      try {
+        expect(resolveAcpLaunch(kind, { cliBinaryPath: '/opt/agent' }, ENV)).toBeNull()
+        expect(describeTransport(kind, '/opt/agent', ENV)).toMatchObject({
+          mode: 'acp',
+          available: false,
+          label: 'ACP unavailable',
+        })
+      } finally {
+        delete process.env[key]
+        if (kind === 'qoder') delete process.env['ARI_QODER_TRANSPORT']
+      }
+    },
+  )
 
   it('uses the detected Codex for both ACP sessions and background probes', async () => {
     const npxPath = await makeFakeNpx()
