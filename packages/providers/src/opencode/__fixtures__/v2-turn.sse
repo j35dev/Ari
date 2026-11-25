@@ -1,0 +1,52 @@
+: heartbeat
+
+data: {"id": "e0", "type": "server.connected", "data": {}}
+
+data: {"id": "evt", "created": 1, "type": "session.reasoning.started", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "ordinal": 0}}
+
+data: {"id": "evt", "created": 1, "type": "session.reasoning.delta", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "ordinal": 0, "delta": "Plan"}}
+
+data: {"id": "evt", "created": 1, "type": "session.reasoning.ended", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "ordinal": 0, "text": "Plan it"}}
+
+data: {"id": "evt", "created": 1, "type": "session.text.delta", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "ordinal": 1, "delta": "Hi"}}
+
+data: {"id": "evt", "created": 1, "type": "session.text.ended", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "ordinal": 1, "text": "Hi there"}}
+
+data: {"id": "evt", "created": 1, "type": "session.tool.input.started", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "id": "call_1", "name": "shell"}}
+
+data: {"id": "evt", "created": 1, "type": "session.tool.input.delta", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "id": "call_1", "delta": "{\"comm"}}
+
+data: {"id": "evt", "created": 1, "type": "session.tool.called", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "id": "call_1", "input": {"command": "ls"}, "executed": true}}
+
+data: {"id": "evt", "created": 1, "type": "session.tool.progress", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "id": "call_1", "metadata": {"output": "a"}}}
+
+data: {"id": "evt", "created": 1, "type": "session.tool.success", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "id": "call_1", "content": [{"type": "text", "text": "a\nb"}, {"type": "file", "uri": "data:image/png;base64,iVBORw0KGgo=", "mime": "image/png", "name": "shot.png"}], "executed": true}}
+
+data: {"id": "evt", "created": 1, "type": "session.tool.input.started", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "id": "call_2", "name": "subagent"}}
+
+data: {"id": "evt", "created": 1, "type": "session.tool.called", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "id": "call_2", "input": {"agent": "explore", "prompt": "look"}, "executed": true}}
+
+data: {"id": "evt", "created": 1, "type": "session.created", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_child", "parentID": "ses_root", "projectID": "p", "location": {"directory": "D:\\work"}, "slug": "s", "version": "2", "agent": "explore", "title": "Look around"}}
+
+data: {"id": "evt", "created": 1, "type": "session.execution.started", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_child"}}
+
+data: {"id": "evt", "created": 1, "type": "session.text.delta", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_child", "assistantMessageID": "msg_c", "ordinal": 0, "delta": "child says"}}
+
+data: {"id": "evt", "created": 1, "type": "session.step.ended", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_child", "assistantMessageID": "msg_c", "finish": "stop", "cost": 0.002, "tokens": {"input": 5, "output": 1, "reasoning": 0, "cache": {"read": 0, "write": 0}}}}
+
+data: {"id": "evt", "created": 1, "type": "session.execution.succeeded", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_child"}}
+
+data: {"id": "evt", "created": 1, "type": "session.tool.failed", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "id": "call_2", "error": {"type": "Unknown", "message": "child crashed"}, "executed": true}}
+
+data: {"id": "evt", "created": 1, "type": "session.step.ended", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "assistantMessageID": "msg_a", "finish": "tool-calls", "cost": 0.02, "tokens": {"input": 200, "output": 30, "reasoning": 10, "cache": {"read": 100, "write": 0}}}}
+
+data: {"id": "evt", "created": 1, "type": "permission.asked", "location": {"directory": "D:\\work"}, "data": {"id": "per_2", "sessionID": "ses_root", "action": "shell", "resources": ["git push"], "save": ["git push *"], "metadata": {}, "source": {"type": "tool", "messageID": "msg_a", "id": "call_3"}}}
+
+data: {"id": "evt", "created": 1, "type": "form.created", "location": {"directory": "D:\\work"}, "data": {"form": {"id": "frm_1", "sessionID": "ses_root", "title": "Setup", "fields": [{"key": "db", "type": "string", "title": "Database", "options": [{"value": "pg", "label": "Postgres"}, {"value": "sqlite", "label": "SQLite"}]}, {"key": "features", "type": "multiselect", "title": "Features", "options": [{"value": "auth", "label": "Auth"}]}, {"key": "tests", "type": "boolean", "title": "Add tests?"}, {"key": "port", "type": "integer", "title": "Port"}, {"key": "docs", "type": "external", "url": "https://example.com"}]}}}
+
+data: {"id": "evt", "created": 1, "type": "session.status", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "status": {"type": "retry", "attempt": 2, "message": "Overloaded", "next": 5}}}
+
+data: {"id": "evt", "created": 1, "type": "session.idle", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root"}}
+
+data: {"id": "evt", "created": 1, "type": "session.execution.failed", "location": {"directory": "D:\\work"}, "data": {"sessionID": "ses_root", "error": {"type": "APIError", "message": "Out of credits"}}}
+

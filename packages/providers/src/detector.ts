@@ -9,6 +9,7 @@ import type { Result } from '@ari/shared/result'
 import { realDetectEnvironment } from './types'
 import type { AuthProbe, DetectEnvironment, Detection } from './types'
 import { runCaptured } from './off-thread'
+import { findOpencode2Binaries } from './opencode/version'
 
 const log = createLogger('providers:detector')
 
@@ -142,6 +143,14 @@ export function findBinaries(kind: DriverKind, env: DetectEnvironment): string[]
       // One per directory: a `.exe` beside its own `.cmd` is the same install.
       break
     }
+  }
+  // OpenCode 2 is preferred when both generations are installed. Its `opencode2`
+  // launcher is the unambiguous one, so those installs go first.
+  if (kind === 'opencode') {
+    const key = (path: string) => (env.platform === 'win32' ? path.toLowerCase() : path)
+    const v2 = findOpencode2Binaries(env)
+    const preferred = new Set(v2.map(key))
+    return [...v2, ...found.filter((path) => !preferred.has(key(path)))]
   }
   // Qoder's IDE and coding CLI can both provide a `qoder` launcher. The
   // unambiguous coding CLI wins over a dispatcher; a user-pinned path still
