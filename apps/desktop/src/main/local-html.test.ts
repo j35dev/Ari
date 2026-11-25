@@ -31,6 +31,18 @@ describe('resolveLocalHtml', () => {
     )
   })
 
+  it('refuses network paths, which would send the login hash to another machine', () => {
+    for (const target of [
+      '\\\\attacker\\share\\page.html',
+      '//attacker/share/page.html',
+      '\\\\?\\UNC\\attacker\\share\\page.html',
+      '%5C%5Cattacker%5Cshare%5Cpage.html',
+      'file://attacker/share/page.html',
+      'file:////attacker/share/page.html',
+    ])
+      expect(() => resolveLocalHtml(target, base), target).toThrow()
+  })
+
   it('refuses a relative path with no folder to resolve it in', () => {
     expect(() => resolveLocalHtml('out/report.html', null)).toThrow("Can't tell which folder")
   })
