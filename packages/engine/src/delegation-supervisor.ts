@@ -389,7 +389,10 @@ export class DelegationSupervisor {
           const seen = (await this.#reads.store.load(parentId)).childCompletions?.[
             entry.childSessionId
           ]
-          if (!(seen?.turnId === entry.turnId && seen.acknowledged))
+          // A delivery is made from the child's recorded turn. Once a later settle
+          // replaces that record, the older turn is settled history: acknowledging
+          // it again changes nothing and wakes this check again, forever.
+          if (!seen || (seen.turnId === entry.turnId && !seen.acknowledged))
             await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'delivered')
         }
         if (operation.status !== 'completed')

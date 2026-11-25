@@ -169,6 +169,26 @@ it('recovers a delivered parent result after acknowledgement loss without resubm
   ).toMatchObject([{ status: 'completed' }])
 })
 
+it('does not re-acknowledge an older delivered turn once the child has settled again', async () => {
+  await start('root')
+  await settle('root')
+  for (const report of ['First pass', 'Second pass']) {
+    await start('a')
+    await settle('a', 'completed', report)
+    await supervisor.evaluate('root')
+    await settle('root')
+  }
+  expect(await notices('root')).toHaveLength(2)
+  const acks: string[] = []
+  const stop = store.subscribe((event) => {
+    if (event.type === 'child.session.acknowledged') acks.push(event.turnId)
+  })
+  for (let round = 0; round < 3; round++) await supervisor.evaluate('root')
+  stop()
+  // Each re-acknowledgement wakes the supervisor again, so any repeat here loops forever.
+  expect(acks).toEqual([])
+})
+
 it('leaves a result delivery with uncertain acceptance inspectable instead of replaying it', async () => {
   await start('root')
   await settle('root')
