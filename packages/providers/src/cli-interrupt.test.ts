@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AdapterSession, Driver } from './driver'
 import { AcpConnection } from './acp/connection'
 import { AppServerConnection } from './codex/appserver-connection'
+import { ClaudeCliDriver } from './claude/cli-driver'
+import { runCaptured } from './off-thread'
 import { CodexDriver } from './codex/codex-driver'
 import { GrokDriver } from './grok/grok-driver'
 import { HermesDriver } from './hermes/hermes-driver'
@@ -54,6 +56,8 @@ describe.runIf(process.platform === 'win32')('CLIs behind an npm .cmd shim', () 
     ['grok', (bin: string): Driver => new GrokDriver(bin)],
     ['hermes', (bin: string): Driver => new HermesDriver(bin)],
     ['codex', (bin: string): Driver => new CodexDriver(bin, { probe: null })],
+    // Ignores the interrupt frame, so the kill fallback has to end it.
+    ['claude', (bin: string): Driver => new ClaudeCliDriver(bin, { pool: null })],
   ])(
     'Stop ends the real %s process, not just cmd.exe',
     async (name, driver) => {
@@ -91,6 +95,14 @@ describe.runIf(process.platform === 'win32')('CLIs behind an npm .cmd shim', () 
       }),
     ).rejects.toThrow()
     expect(alive(await cli.pid())).toBe(false)
+  }, 30_000)
+
+  it('a timed-out off-thread command ends the whole tree', async () => {
+    const cli = await shim('version-probe')
+    const run = runCaptured(cli.path, ['--version'], { timeoutMs: 1_500 })
+    const pid = await cli.pid()
+    expect(await run).toEqual({ code: null, stdout: '' })
+    await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5_000 })
   }, 30_000)
 
   it('killing the Codex app-server connection ends the whole tree', async () => {
