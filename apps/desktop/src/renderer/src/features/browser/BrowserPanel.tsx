@@ -324,14 +324,16 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
         ) : null}
         {!blank && still !== null ? (
           // Keep the last frame aligned with the live page instead of stretching
-          // it when the host resizes while an overlay hides the guest.
+          // it when the host resizes while an overlay hides the guest. Its
+          // height follows its own aspect: an agent's desktop page fitted into
+          // a narrow panel is shorter than the panel.
           <img
             src={still.dataUrl}
             alt=""
             decoding="sync"
             draggable={false}
-            className="absolute left-0 top-0 max-w-none"
-            style={{ width: still.width, height: still.height }}
+            className="absolute left-0 top-0 h-auto max-w-none"
+            style={{ width: still.width }}
           />
         ) : null}
       </div>

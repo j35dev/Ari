@@ -27,9 +27,13 @@ export async function checkNativeBrowserInput(
   win.focus()
   const wc = page.webContents
   assert.equal(wc.isOffscreen(), false)
+  // A user clicks the panel, not the page: a desktop-width page fitted into a
+  // narrower panel is drawn scaled, so its CSS point is that much closer in.
   const field = (await wc.executeJavaScript(`(() => {
     const field = document.querySelector('#field'); field.value = '';
-    const rect = field.getBoundingClientRect(); return { x: Math.round(rect.x + 20), y: Math.round(rect.y + 10) };
+    const rect = field.getBoundingClientRect();
+    const scale = ${page.getBounds().width} / innerWidth;
+    return { x: Math.round((rect.x + 20) * scale), y: Math.round((rect.y + 10) * scale) };
   })()`)) as { x: number; y: number }
   wc.focus()
   wc.sendInputEvent({ type: 'mouseMove', ...field })

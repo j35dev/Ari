@@ -1,7 +1,12 @@
 import { BrowserWindow, WebContentsView, type NativeImage, type WebContents } from 'electron'
 import { encodeCapture } from './browser-capture'
 import { ConsoleBuffer } from './browser-console'
-import type { BrowserGuest, BrowserGuestFactory, PointerButton } from './browser-service'
+import type {
+  BrowserBounds,
+  BrowserGuest,
+  BrowserGuestFactory,
+  PointerButton,
+} from './browser-service'
 import { isBrowserNavigable } from './browser-url'
 
 export const BROWSER_PARTITION = 'persist:ari-browser'
@@ -29,11 +34,45 @@ export const AGENT_TAB_WAKE_MS = 100
  */
 export const CAPTURE_RETRY_MS = 50
 export const CAPTURE_ATTEMPTS = 21
+/** A full-size capture attempt that has not answered in this long is abandoned. */
+const FULL_SIZE_CAPTURE_MS = 250
 /**
  * Agent input borrows keyboard focus for the page and gives it back this long
  * after its last event, unless a key or mouse button is still held down.
  */
 export const INPUT_FOCUS_HOLD_MS = 500
+
+/**
+ * The narrowest page an agent tab lays out at, and its size before any panel
+ * has placed it. An agent reads and screenshots a page the way a desktop
+ * visitor sees it, however narrow the docked panel is: a panel narrower than
+ * this shows the page scaled down to fit rather than reflowed to a phone
+ * layout.
+ */
+export const AGENT_DESKTOP_VIEWPORT = { width: 1280, height: 800 } as const
+
+/** The tallest viewport a fitted agent page gets; a desktop window, not a scroll. */
+export const AGENT_MAX_VIEWPORT_HEIGHT = 1000
+
+/**
+ * The CSS viewport an agent page lays out at inside `panel`, and the scale
+ * that fits it there: at least the desktop width, and as tall as the panel at
+ * that scale up to a desktop window's height (a narrow panel's full height
+ * would be a portrait page no desktop visitor sees). With no panel yet, the
+ * plain desktop size.
+ */
+export function agentLayout(panel: BrowserBounds | null): {
+  width: number
+  height: number
+  scale: number
+} {
+  if (panel === null || panel.width <= 0 || panel.height <= 0)
+    return { ...AGENT_DESKTOP_VIEWPORT, scale: 1 }
+  const width = Math.max(AGENT_DESKTOP_VIEWPORT.width, panel.width)
+  const scale = panel.width / width
+  const height = Math.min(Math.round(panel.height / scale), AGENT_MAX_VIEWPORT_HEIGHT)
+  return { width, height, scale }
+}
 
 interface PaintControl {
   setBackgroundThrottling(allowed: boolean): void
@@ -152,7 +191,9 @@ export function createElectronBrowserGuest(
     },
   })
   win.contentView.addChildView(view)
-  view.setBounds({ x: 0, y: 0, width: 800, height: 600 })
+  view.setBounds(
+    agent ? { x: 0, y: 0, ...AGENT_DESKTOP_VIEWPORT } : { x: 0, y: 0, width: 800, height: 600 },
+  )
   view.setVisible(false)
   const wc = view.webContents
   let presented = false
@@ -160,7 +201,71 @@ export function createElectronBrowserGuest(
   wc.setUserAgent(wc.getUserAgent().replace(/\sElectron\/\S+/g, ''))
 
   let frame: NativeImage | null = null
-  let viewport = { width: 800, height: 600 }
+  let viewport: { width: number; height: number } = agent
+    ? { ...AGENT_DESKTOP_VIEWPORT }
+    : { width: 800, height: 600 }
+  // Where the panel placed this page, and how an agent page is fitted there.
+  let placed: BrowserBounds | null = null
+  /** Widget px per page CSS px; below 1 while a desktop page is fitted into a narrow panel. */
+  let layoutScale = 1
+  let emulated = ''
+  const resize = (bounds: BrowserBounds): void => {
+    if (viewport.width !== bounds.width || viewport.height !== bounds.height) {
+      frame = null
+      viewport = { width: bounds.width, height: bounds.height }
+    }
+    view.setBounds(bounds)
+  }
+  const emulate = (layout: { width: number; height: number; scale: number } | null): void => {
+    const key = layout === null ? '' : `${layout.width}x${layout.height}@${layout.scale}`
+    if (key === emulated || wc.isDestroyed()) return
+    emulated = key
+    layoutScale = layout?.scale ?? 1
+    if (layout === null) {
+      wc.disableDeviceEmulation()
+      return
+    }
+    const size = { width: layout.width, height: layout.height }
+    wc.enableDeviceEmulation({
+      screenPosition: 'desktop',
+      screenSize: size,
+      viewPosition: { x: 0, y: 0 },
+      viewSize: size,
+      deviceScaleFactor: 0,
+      scale: layout.scale,
+    })
+  }
+  /**
+   * Sizes the view for where it is. The inspector tab simply fills its panel.
+   * An agent page lays out at desktop width: shown in a narrower panel it is
+   * emulated at that width and scaled to fit (Chromium maps real input through
+   * the same transform); hidden, the view itself takes the desktop size, so
+   * captures need no scaling at all.
+   */
+  const applyLayout = (): void => {
+    if (!agent) {
+      if (placed !== null) resize(placed)
+      return
+    }
+    const layout = agentLayout(placed)
+    if (presented && placed !== null && layout.scale < 1) {
+      // The view covers only the scaled page; the panel's own background
+      // shows below it when the panel is taller.
+      resize({
+        ...placed,
+        height: Math.min(placed.height, Math.ceil(layout.height * layout.scale)),
+      })
+      emulate(layout)
+      return
+    }
+    emulate(null)
+    const origin = placed ?? { x: 0, y: 0 }
+    resize(
+      presented && placed !== null
+        ? placed
+        : { x: origin.x, y: origin.y, width: layout.width, height: layout.height },
+    )
+  }
   let frameReceived: (() => void) | null = null
   const painter = agent
     ? idlePainter(wc, (image?: NativeImage) => {
@@ -249,6 +354,52 @@ export function createElectronBrowserGuest(
     })
   }
 
+  const captureFullSize = async (
+    format: 'png' | 'jpeg',
+    size: { width: number; height: number },
+  ): Promise<Buffer | null> => {
+    const at = placed
+    // Only a page on screen is resized for this. With Ari hidden in the tray
+    // or minimized, the resized surface is never copied; the caller then
+    // takes the fitted capture instead.
+    if (at === null || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return null
+    const layout = agentLayout(at)
+    try {
+      // Slid left until one pixel column remains inside the panel. A hidden
+      // view keeps its old surface and one parked wholly outside the window
+      // paints no new frames, so either would hand back the scaled page; this
+      // one renders at the real size while the panel's still of the page
+      // stands in for it.
+      emulate(null)
+      resize({
+        x: at.x - layout.width + 1,
+        y: at.y,
+        width: layout.width,
+        height: layout.height,
+      })
+      for (let attempt = 1; attempt <= CAPTURE_ATTEMPTS; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, CAPTURE_RETRY_MS))
+        if (wc.isDestroyed()) return null
+        try {
+          // The first copies can still be the scaled surface from before the
+          // resize; only a full-width one is the page at its real size.
+          const image = await Promise.race([
+            wc.capturePage(),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), FULL_SIZE_CAPTURE_MS)),
+          ])
+          if (image === null || image.getSize().width < layout.width) continue
+          const captured = encodeCapture(image, format, size)
+          if (captured !== null) return captured
+        } catch {
+          // The resized surface may not be copyable for a frame or two.
+        }
+      }
+      return null
+    } finally {
+      if (!wc.isDestroyed() && !win.isDestroyed()) applyLayout()
+    }
+  }
+
   const emit = (): void => onUpdated()
   const consoleBuffer = new ConsoleBuffer()
   wc.on('console-message', (details) =>
@@ -319,9 +470,26 @@ export function createElectronBrowserGuest(
       wake()
       const delay = painter?.settleDelay() ?? 0
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+      // A fitted page is drawn scaled; its CSS rect is that much smaller on screen.
+      const shown =
+        rect === undefined || layoutScale === 1
+          ? rect
+          : {
+              x: Math.round(rect.x * layoutScale),
+              y: Math.round(rect.y * layoutScale),
+              width: Math.max(1, Math.round(rect.width * layoutScale)),
+              height: Math.max(1, Math.round(rect.height * layoutScale)),
+            }
+      // An agent's screenshot of a page fitted into a narrow panel would come
+      // back at the panel's resolution. Capture it at full size instead, with
+      // the view briefly parked outside the window at the page's real size.
+      if (size !== undefined && rect === undefined && layoutScale < 1 && placed !== null) {
+        const full = await captureFullSize(format, size)
+        if (full !== null) return full
+      }
       for (let attempt = 1; ; attempt++) {
         try {
-          const captured = encodeCapture(await wc.capturePage(rect), format, size)
+          const captured = encodeCapture(await wc.capturePage(shown), format, size)
           if (captured !== null) return captured
         } catch {
           // Hidden native surfaces can have no copyable frame during a handoff.
@@ -346,8 +514,12 @@ export function createElectronBrowserGuest(
         else heldKeys.delete(key)
       })
     },
-    sendMouse: (phase, x, y, button, modifiers) => {
+    sendMouse: (phase, cssX, cssY, button, modifiers) => {
       wake()
+      // Agents point in page CSS px; a fitted page is drawn `layoutScale` times
+      // smaller, and Chromium maps widget input back through that scale.
+      const x = Math.round(cssX * layoutScale)
+      const y = Math.round(cssY * layoutScale)
       input(() => {
         if (phase === 'down' || phase === 'up') {
           wc.sendInputEvent({
@@ -371,15 +543,15 @@ export function createElectronBrowserGuest(
       })
     },
     setBounds: (bounds) => {
-      if (viewport.width !== bounds.width || viewport.height !== bounds.height) {
-        frame = null
-        viewport = { width: bounds.width, height: bounds.height }
-      }
-      view.setBounds(bounds)
+      placed = bounds
+      applyLayout()
     },
     setVisible: (visible) => {
       if (win.isDestroyed()) return
       presented = visible
+      // Sized for where it is going before it shows, and back to the desktop
+      // size once it is hidden.
+      applyLayout()
       if (visible) {
         // Its subscription frame predates the page the user is about to change.
         frame = null
