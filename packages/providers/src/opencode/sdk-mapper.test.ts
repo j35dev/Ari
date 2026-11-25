@@ -107,11 +107,55 @@ describe('classic OpenCode stream', () => {
     ])
   })
 
-  it('reports a provider error but not the abort, and ends on the root session going idle', () => {
+  it('reports a provider error but not the abort, and the idle after it ends a failed turn', () => {
     expect(ofType(events, 'error').map((e) => e.message)).toEqual(['Provider is overloaded'])
-    expect(ends).toEqual(['completed'])
+    expect(ends).toEqual(['error'])
     // Another session's idle never ends this turn.
     expect(events.at(-1)?.type).toBe('error')
+  })
+
+  it('never reports the user’s own prompt as assistant text', () => {
+    const wire = new WireV1(fakeHttp().http)
+    const mapper = new OpencodeTurnMapper('ses_root')
+    const feed = (type: string, properties: unknown) =>
+      wire.normalize({ payload: { type, properties } }).flatMap((e) => mapper.map(e).events)
+    const user = { id: 'msg_u', sessionID: 'ses_root', role: 'user' }
+    const assistant = { id: 'msg_a', sessionID: 'ses_root', role: 'assistant' }
+    const out = [
+      ...feed('message.updated', { sessionID: 'ses_root', info: user }),
+      ...feed('message.part.updated', {
+        part: {
+          id: 'p_u',
+          sessionID: 'ses_root',
+          messageID: 'msg_u',
+          type: 'text',
+          text: 'my prompt',
+        },
+      }),
+      // A user part whose message was not seen yet: no timing, so not streamed.
+      ...feed('message.part.updated', {
+        part: { id: 'p_u2', sessionID: 'ses_root', messageID: 'msg_x', type: 'text', text: 'echo' },
+      }),
+      ...feed('message.part.delta', {
+        sessionID: 'ses_root',
+        messageID: 'msg_u',
+        partID: 'p_u',
+        field: 'text',
+        delta: 'more prompt',
+      }),
+      ...feed('message.updated', { sessionID: 'ses_root', info: assistant }),
+      ...feed('message.part.updated', {
+        part: {
+          id: 'p_a',
+          sessionID: 'ses_root',
+          messageID: 'msg_a',
+          type: 'text',
+          text: 'answer',
+          time: { start: 1 },
+        },
+      }),
+    ]
+    expect(out).toEqual([{ type: 'text-delta', text: 'answer', streamId: 'p_a' }])
   })
 })
 

@@ -38,6 +38,8 @@ export function fakeHttp(routes: Record<string, unknown> = {}) {
       calls.set(key, (calls.get(key) ?? 0) + 1)
       const answer =
         typeof route === 'function' ? (route as (n: number) => unknown)(calls.get(key)!) : route
+      // A pending promise is a request the server has not answered (yet).
+      if (answer instanceof Promise) return answer as Promise<Response>
       if (answer instanceof Response) return Promise.resolve(answer)
       if (answer === undefined) return Promise.resolve(new Response(null, { status: 204 }))
       return Promise.resolve(new Response(JSON.stringify(answer)))
