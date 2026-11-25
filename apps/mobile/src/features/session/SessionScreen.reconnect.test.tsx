@@ -18,7 +18,9 @@ interface ControlledSession {
   state: ConnectionState
   capabilities: string[]
   change: (state: ConnectionState) => void
-  connect: ReturnType<typeof vi.fn<(signal?: AbortSignal) => Promise<ConnectionState>>>
+  connect: ReturnType<
+    typeof vi.fn<(signal?: AbortSignal, options?: { resume?: boolean }) => Promise<ConnectionState>>
+  >
   query: ReturnType<typeof vi.fn<(op: string) => Promise<unknown>>>
   send: ReturnType<typeof vi.fn<(command: unknown, key?: string) => Promise<unknown>>>
   subscribe: ReturnType<typeof vi.fn>
@@ -64,12 +66,14 @@ vi.mock('../../lib/session', () => ({
       this.state = state
       this.options.onState(state)
     }
-    connect = vi.fn(async (_signal?: AbortSignal): Promise<ConnectionState> => {
-      this.change('connecting')
-      const state = await control.result(this)
-      this.change(state)
-      return state
-    })
+    connect = vi.fn(
+      async (_signal?: AbortSignal, _options?: { resume?: boolean }): Promise<ConnectionState> => {
+        this.change('connecting')
+        const state = await control.result(this)
+        this.change(state)
+        return state
+      },
+    )
     supports(op: string): boolean {
       return this.capabilities.includes(op)
     }
@@ -92,7 +96,30 @@ vi.mock('../../lib/session', () => ({
             else if (code === 1008) this.change('revoked')
             options.onClose({ code, reason: '' })
           },
-          frame: (): void => options.onFrame({ type: 'events.frame' }),
+          frame: (): void =>
+            options.onFrame({
+              type: 'events.frame',
+              sessionId: 'sess_1',
+              events: [
+                {
+                  seq: 5,
+                  event: {
+                    type: 'user.message.added',
+                    seq: 5,
+                    at: 2,
+                    sessionId: 'sess_1',
+                    message: {
+                      id: 'm_stream',
+                      sessionId: 'sess_1',
+                      turnId: null,
+                      role: 'user',
+                      parts: [{ type: 'text', text: 'Folded from the stream' }],
+                      createdAt: 2,
+                    },
+                  },
+                },
+              ],
+            }),
         }
         this.streams.push(stream)
         return stream.dispose
@@ -173,29 +200,65 @@ describe('active-session reconnect ownership', () => {
       'sess_1',
       expect.objectContaining({ fromSeq: 4 }),
     ])
+    // A drop resumes the existing authorization instead of signing in again.
+    expect(session.connect.mock.calls[1]?.[1]).toEqual({ resume: true })
     session.query.mockClear()
     act(() => session.streams[1]!.frame())
-    await advance(700)
-    expect(session.query).toHaveBeenCalledWith('session.get', { sessionId: 'sess_1' })
-    await advance(30000)
+    await advance(100)
+    // Streamed events are folded on the phone; nothing re-reads the transcript.
+    expect(screen.getByText('Folded from the stream')).toBeTruthy()
+    expect(session.query).not.toHaveBeenCalledWith('session.get', expect.anything())
+    await advance(25000)
     expect(session.subscribe).toHaveBeenCalledTimes(2)
   })
 
-  it('stops after a failed connection cycle and permits manual recovery', async () => {
+  it('keeps retrying an unreachable computer, more slowly each time, while on screen', async () => {
+    const { session } = await mount()
+    control.result.mockResolvedValueOnce('unreachable').mockResolvedValueOnce('unreachable')
+    vi.useFakeTimers()
+    act(() => session.streams[0]!.close(1006))
+    await advance(2100)
+    expect(screen.getByTestId('connection').textContent).toBe('unreachable')
+    expect(session.subscribe).toHaveBeenCalledTimes(1)
+    await advance(3800)
+    expect(session.connect).toHaveBeenCalledTimes(2)
+    await advance(300)
+    expect(session.connect).toHaveBeenCalledTimes(3)
+    expect(screen.getByTestId('connection').textContent).toBe('unreachable')
+    await advance(7600)
+    expect(session.connect).toHaveBeenCalledTimes(3)
+    await advance(400)
+    expect(session.connect).toHaveBeenCalledTimes(4)
+    expect(screen.getByTestId('connection').textContent).toBe('connected')
+    expect(session.subscribe).toHaveBeenCalledTimes(2)
+  })
+
+  it('lets the user retry an unreachable computer at once', async () => {
     const { session } = await mount()
     control.result.mockResolvedValueOnce('unreachable')
     vi.useFakeTimers()
     act(() => session.streams[0]!.close(1006))
     await advance(2100)
     expect(screen.getByTestId('connection').textContent).toBe('unreachable')
-    expect(session.subscribe).toHaveBeenCalledTimes(1)
-    await advance(120000)
-    expect(session.connect).toHaveBeenCalledTimes(2)
     fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
     await advance(0)
     expect(screen.getByTestId('connection').textContent).toBe('connected')
-    expect(session.connect).toHaveBeenCalledTimes(3)
+    // The user's own retry authorizes from scratch.
+    expect(session.connect.mock.calls[2]?.[1]).toEqual({})
     expect(session.subscribe).toHaveBeenCalledTimes(2)
+  })
+
+  it('reopens the stream when the phone comes back to the foreground', async () => {
+    const { session } = await mount()
+    vi.useFakeTimers()
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await advance(0)
+    // iOS may have frozen the old socket without closing it.
+    expect(session.streams[0]!.dispose).toHaveBeenCalledTimes(1)
+    expect(session.subscribe).toHaveBeenCalledTimes(2)
+    expect(session.query).toHaveBeenCalledWith('session.get', { sessionId: 'sess_1', limit: 40 })
   })
 
   it('stops after an identity read throws before connecting, and reports manual recovery', async () => {
@@ -244,6 +307,18 @@ describe('active-session reconnect ownership', () => {
       expect(session.subscribe).toHaveBeenCalledTimes(2)
     },
   )
+
+  it('checks the computer as soon as the phone reports it went offline', async () => {
+    const { session } = await mount()
+    control.result.mockResolvedValueOnce('unreachable')
+    act(() => {
+      window.dispatchEvent(new Event('offline'))
+    })
+    await waitFor(() => expect(screen.getByTestId('connection').textContent).toBe('unreachable'))
+    expect(session.connect).toHaveBeenCalledTimes(2)
+    // The stream the screen held is closed rather than left looking live.
+    expect(session.streams[0]!.dispose).toHaveBeenCalledTimes(1)
+  })
 
   it('cancels a pending timer and closes the stream on provider unmount', async () => {
     const { session, unmount } = await mount()
