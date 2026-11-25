@@ -536,14 +536,19 @@ const MAX_THOUGHT_CHARS = 120
 /**
  * First meaningful line of a reasoning block, capped for a collapsed row.
  * Markdown emphasis and heading markers are stripped so the preview reads as
- * prose rather than raw syntax.
+ * prose rather than raw syntax. A thought with no such line has no preview
+ * (empty string): a placeholder word read as "Thought Thinking".
  */
 export function thoughtPreview(text: string): string {
-  const line = text
+  const clean = text
     .split('\n')
-    .map((l) => l.replace(/^\s*[#>*\-\s]+/, '').trim())
+    .map((l) =>
+      l
+        .replace(/^\s*[#>*\-\s]+/, '')
+        .replace(/[*_`]/g, '')
+        .trim(),
+    )
     .find((l) => l.length > 0)
-  if (line === undefined) return 'Thinking'
-  const clean = line.replace(/[*_`]/g, '')
+  if (clean === undefined) return ''
   return clean.length > MAX_THOUGHT_CHARS ? `${clean.slice(0, MAX_THOUGHT_CHARS - 1)}…` : clean
 }

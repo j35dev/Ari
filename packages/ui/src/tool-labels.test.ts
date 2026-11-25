@@ -268,7 +268,12 @@ describe('thoughtPreview', () => {
     const preview = thoughtPreview('a'.repeat(300))
     expect(preview).toHaveLength(120)
     expect(preview.endsWith('…')).toBe(true)
-    expect(thoughtPreview('   ')).toBe('Thinking')
+    expect(thoughtPreview('   ')).toBe('')
+  })
+
+  it('has no preview when every line is only markdown markers', () => {
+    expect(thoughtPreview('**\n\n## \n`` ``\n__')).toBe('')
+    expect(thoughtPreview('**\n__\nreal line')).toBe('real line')
   })
 })
 
