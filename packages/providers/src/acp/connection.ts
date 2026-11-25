@@ -376,7 +376,9 @@ export class AcpConnection {
       }
       return connection
     } catch (error) {
-      connection.kill()
+      // A tree kill: a bare kill() on Windows ends only the npx shim's cmd.exe,
+      // leaving the adapter running and its npx cache entry locked.
+      await connection.shutdown()
       // A half-installed npx entry fails every launch the same way; clearing
       // it lets one retry install the adapter afresh. Probes stay read-only:
       // without `-y` a retry has nothing it is allowed to install.

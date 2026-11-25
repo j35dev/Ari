@@ -398,7 +398,7 @@ export async function createAcpAdapter(
       created = opened.created
       resumed = opened.resumed
     } catch (error) {
-      connection.kill()
+      await connection.shutdown()
       throw setupFailure(error)
     }
     // pi-acp can emit its startup prelude as a regular agent message when the
@@ -536,7 +536,7 @@ export async function createAcpAdapter(
     }
     modelConfigured = true
   } catch (error) {
-    connection.kill()
+    await connection.shutdown()
     throw setupFailure(error)
   }
 
