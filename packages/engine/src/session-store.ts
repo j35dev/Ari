@@ -14,7 +14,16 @@ import {
   type SessionListEntry,
   type UsageSummary,
 } from './legacy-session-store'
-import { ConversationDatabase, savedEvents, savedMessages } from './conversation-database'
+import {
+  ConversationDatabase,
+  isControlEvent,
+  savedEvents,
+  savedMessages,
+  type ConversationSnapshot,
+  type EventNote,
+  type TranscriptAnchor,
+} from './conversation-database'
+import { TranscriptPosition } from './conversation-controls'
 import { parseConversationState } from './conversation-state'
 import { replayEntries, diagnosticsOf, type ReplayDiagnostics } from './journal-replay'
 import {
@@ -50,6 +59,10 @@ export class SessionStore extends LegacySessionStore {
   readonly #failures = new Map<string, Error>()
   readonly #diagnostics = new Map<string, ReplayDiagnostics>()
   readonly #history = new Map<string, ConversationHistory>()
+  /** Per session, what each pending event's row needs beyond the event itself. */
+  readonly #notes = new Map<string, Map<number, EventNote>>()
+  /** Per session, the transcript part written last: where a delegation card goes. */
+  readonly #lastPart = new Map<string, TranscriptAnchor>()
   #closing = false
 
   constructor(options: SessionStoreOptions) {
@@ -130,6 +143,8 @@ export class SessionStore extends LegacySessionStore {
       })
       const diagnostics = diagnosticsOf(rejected)
       const created = events.find((event) => event.type === 'session.created')
+      const position = new TranscriptPosition()
+      const notes = new Map(events.map((event) => [event.seq, position.next(event)]))
       await database.save({
         sessionId: id,
         created: JSON.stringify(
@@ -139,7 +154,7 @@ export class SessionStore extends LegacySessionStore {
         index: JSON.stringify(entryFrom(model, 0)),
         diagnostics: JSON.stringify(diagnostics),
         lastSeq: model.lastSeq,
-        events: savedEvents(events),
+        events: savedEvents(events, notes),
         messages: savedMessages(model.messages),
         import: true,
       })
@@ -195,10 +210,23 @@ export class SessionStore extends LegacySessionStore {
         throw new Error('Conversation does not exist')
       if (stamped.type === 'session.created' && (stamped.session.id !== id || model.session))
         throw new Error('Conversation already exists or has an invalid identity')
+      const note = this.#note(id, model, stamped)
       const post = applyEvent(model, stamped)
       const pending = this.#pending.get(id) ?? []
       pending.push(stamped)
       this.#pending.set(id, pending)
+      const notes = this.#notes.get(id) ?? new Map<number, EventNote>()
+      if (note) notes.set(stamped.seq, note)
+      this.#notes.set(id, notes)
+      if (stamped.type === 'user.message.added')
+        this.#lastPart.set(id, {
+          messageId: stamped.message.id,
+          parts: stamped.message.parts.length,
+        })
+      if (stamped.type === 'assistant.parts.appended') {
+        const message = post.messages.find((entry) => entry.id === stamped.messageId)
+        if (message) this.#lastPart.set(id, { messageId: message.id, parts: message.parts.length })
+      }
       const changed = this.#changed.get(id) ?? new Set<string>()
       if (stamped.type === 'assistant.parts.appended') changed.add(stamped.messageId)
       if (stamped.type === 'user.message.added') changed.add(stamped.message.id)
@@ -210,6 +238,7 @@ export class SessionStore extends LegacySessionStore {
           await this.#flush(id)
         } catch (error) {
           pending.pop()
+          notes.delete(stamped.seq)
           if (!pending.length) this.#pending.delete(id)
           this.#models.set(id, model)
           this.#failures.set(id, error instanceof Error ? error : new Error(String(error)))
@@ -225,6 +254,70 @@ export class SessionStore extends LegacySessionStore {
       }
       return stamped
     })
+  }
+
+  /** What the stored row of `event` records beyond the event, judged before it applies. */
+  #note(id: string, model: SessionReadModel, event: JournalEvent): EventNote | null {
+    if (event.type === 'child.session.acknowledged') {
+      const current = model.childCompletions?.[event.childSessionId]
+      const known =
+        (current?.turnId === event.turnId && current.acknowledged) ||
+        current?.earlyAck === event.turnId
+      return known ? { repeat: true } : null
+    }
+    if (event.type !== 'child.session.spawned') return null
+    const last = model.messages.at(-1)
+    const anchor =
+      this.#lastPart.get(id) ?? (last ? { messageId: last.id, parts: last.parts.length } : null)
+    return anchor ? { anchor } : null
+  }
+
+  /**
+   * Saved messages and every non-message event, as of the last seq, in one
+   * read. Opening a transcript from this costs its messages, not every
+   * streamed delta. Null for conversations this store cannot snapshot.
+   */
+  async readConversationSnapshot(id: string): Promise<ConversationSnapshot | null> {
+    const database = this.#database
+    if (!database) return null
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const snapshot = await this.#serial(id, async () => {
+        // A legacy conversation is imported on first open, as a replay would.
+        if (!this.#models.has(id) && !(await database.head(id))) await this.#model(id)
+        await this.#flush(id)
+        return database.snapshot(id)
+      })
+      if (!snapshot || !('stale' in snapshot)) return snapshot
+      await this.#rebuildControls(id)
+    }
+    return null
+  }
+
+  /** Writes the event rows of a conversation saved before they existed, once. */
+  async #rebuildControls(id: string): Promise<void> {
+    const database = this.#database!
+    const position = new TranscriptPosition()
+    const events: JournalEvent[] = []
+    const notes = new Map<number, EventNote>()
+    let throughSeq = -1
+    for (let afterId = 0; ;) {
+      const batches = await database.history(id, afterId, true)
+      if (!batches.length) break
+      for (const batch of batches) {
+        for (const value of JSON.parse(batch.json) as unknown[]) {
+          const parsed = journalEventSchema.safeParse(value)
+          if (!parsed.success || parsed.data.sessionId !== id) continue
+          const event = parsed.data
+          throughSeq = Math.max(throughSeq, event.seq)
+          const note = position.next(event)
+          if (!isControlEvent(event) || note.repeat) continue
+          events.push(event)
+          notes.set(event.seq, note)
+        }
+        afterId = batch.id
+      }
+    }
+    await database.rebuildControls(id, throughSeq, savedEvents(events, notes))
   }
 
   #schedule(id: string): void {
@@ -256,10 +349,11 @@ export class SessionStore extends LegacySessionStore {
       index: JSON.stringify(entryFrom(model, 0)),
       diagnostics: JSON.stringify(this.replayDiagnostics(id)),
       lastSeq: model.lastSeq,
-      events: savedEvents(events),
+      events: savedEvents(events, this.#notes.get(id)),
       messages: savedMessages(model.messages, this.#changed.get(id)),
     }
     this.#pending.delete(id)
+    this.#notes.delete(id)
     this.#changed.delete(id)
     const saving = this.#database!.save(commit).then(() => undefined)
     this.#writes.set(id, saving)
@@ -478,6 +572,8 @@ export class SessionStore extends LegacySessionStore {
       this.#history.delete(id)
       this.#diagnostics.delete(id)
       this.#failures.delete(id)
+      this.#notes.delete(id)
+      this.#lastPart.delete(id)
     })
   }
   async close(): Promise<void> {
