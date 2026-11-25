@@ -138,6 +138,16 @@ export function permissionReply(decision: AdapterApprovalDecision): OcPermission
   return decision === 'allow' ? 'once' : decision === 'always-allow' ? 'always' : 'reject'
 }
 
+/** The server cannot hold the session to Ari's permission mode. */
+export class RulesUnsupportedError extends Error {
+  constructor() {
+    super(
+      'This OpenCode build cannot apply per-session permission rules, so it would run edits and shell commands without asking. Use Full access, or update OpenCode.',
+    )
+    this.name = 'RulesUnsupportedError'
+  }
+}
+
 /**
  * OpenCode through its own HTTP server, the way Claude runs through the Agent
  * SDK: one shared `opencode serve` per binary, a live event stream, and the
@@ -150,6 +160,8 @@ export class OpencodeSdkDriver implements Driver {
   readonly #capabilities: ProviderCapabilities
   /** Permission mode last written to each native session, so unchanged turns skip the call. */
   readonly #modes = new Map<string, PermissionMode>()
+  /** Servers that accept sessions but not their permission rules (OpenCode 2 previews). */
+  readonly #withoutRules = new WeakSet<OpencodeServer>()
 
   constructor(
     private readonly binary: string,
@@ -211,23 +223,35 @@ export class OpencodeSdkDriver implements Driver {
       server = await this.#pool.acquire(this.#spec(session.runtimeEnv))
       const wire = server.wire
       const directory = session.workspacePath
+      const mode = session.permissionMode
+      // Without session rules the agent's defaults decide, and OpenCode's
+      // build agent runs edits and shell unasked: only Full access is honest there.
+      if (mode !== 'full' && this.#withoutRules.has(server)) throw new RulesUnsupportedError()
       const resumed =
         session.resumeOf !== null && (await wire.sessionExists(session.resumeOf, directory))
       if (resumed) {
         nativeId = session.resumeOf!
-        if (this.#modes.get(nativeId) !== session.permissionMode)
-          await wire
-            .setPermissions(nativeId, directory, session.permissionMode)
-            .catch((error: unknown) => {
-              // OpenCode 2 previews have no session update route. The turn
-              // still runs, under the rules the session was created with.
-              log.warn('OpenCode session permissions not updated', { error: String(error) })
-              notices.push(
-                'OpenCode could not change this session’s permission rules; it keeps the ones it started with.',
-              )
-            })
+        if (this.#modes.get(nativeId) !== mode)
+          await wire.setPermissions(nativeId, directory, mode).catch((error: unknown) => {
+            log.warn('OpenCode session permissions not updated', { error: String(error) })
+            if (error instanceof OcHttpError && error.status === 404)
+              this.#withoutRules.add(server!)
+            // Rules that stay stricter than asked are safe to run under.
+            if (mode !== 'full') throw new RulesUnsupportedError()
+            notices.push(
+              'OpenCode could not change this session’s permission rules; it keeps the ones it started with.',
+            )
+          })
       } else {
-        nativeId = await wire.createSession(directory, session.permissionMode)
+        const created = await wire.createSession(directory, mode)
+        nativeId = created.id
+        if (!created.rulesApplied) {
+          this.#withoutRules.add(server)
+          if (mode !== 'full') {
+            await wire.deleteSession(nativeId, directory).catch(() => {})
+            throw new RulesUnsupportedError()
+          }
+        }
       }
       this.#modes.set(nativeId, session.permissionMode)
       if (wire.setEnvironment && session.runtimeEnv)
@@ -236,7 +260,12 @@ export class OpencodeSdkDriver implements Driver {
     } catch (error) {
       if (server) this.#pool.release(server)
       // Nothing was prompted yet, so a fallback cannot run the turn twice.
-      log.warn('OpenCode server unavailable', { error: String(error) })
+      log.warn(
+        error instanceof RulesUnsupportedError
+          ? 'OpenCode server cannot apply this permission mode; using the fallback transport'
+          : 'OpenCode server unavailable',
+        { error: String(error) },
+      )
       if (fallback) return fallback.create(session)
       throw error
     }

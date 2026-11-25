@@ -37,7 +37,7 @@ it.skipIf(process.env['ARI_OPENCODE_SMOKE'] !== '1')(
         server.on((event) => events.push(event))
         const catalog = await server.wire.catalog(cwd)
         const commands = await server.wire.commands(cwd)
-        const id = await server.wire.createSession(cwd, 'ask')
+        const { id, rulesApplied } = await server.wire.createSession(cwd, 'ask')
         expect(await server.wire.sessionExists(id, cwd)).toBe(true)
         expect(await server.wire.sessionExists('ses_doesnotexist000000000000', cwd)).toBe(false)
         // OpenCode 2 previews answer 404 here; the driver reports that as a notice.
@@ -58,6 +58,7 @@ it.skipIf(process.env['ARI_OPENCODE_SMOKE'] !== '1')(
           commands: commands.slice(0, 3),
           session: id,
           permissions,
+          rulesApplied,
           events: events.filter((event) => 'sessionID' in event && event.sessionID === id),
         })
         expect(events.some((event) => event.type === 'session' && event.sessionID === id)).toBe(

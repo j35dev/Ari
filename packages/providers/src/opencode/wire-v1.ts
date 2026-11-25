@@ -214,14 +214,19 @@ export class WireV1 implements OpencodeWire {
     }))
   }
 
-  async createSession(directory: string, mode: PermissionMode): Promise<string> {
+  async createSession(directory: string, mode: PermissionMode) {
     const created = await this.http.request<{ id?: unknown }>('POST', '/session', {
       directory,
       body: { permission: this.#rules(mode) },
     })
     const id = str(asRecord(created)?.['id'])
     if (!id) throw new Error('OpenCode did not return a session id.')
-    return id
+    // Session rules exist in every classic 1.x server (verified asking live on 1.19).
+    return { id, rulesApplied: true }
+  }
+
+  async deleteSession(sessionID: string, directory: string): Promise<void> {
+    await this.http.request('DELETE', `/session/${encodeId(sessionID)}`, { directory })
   }
 
   async sessionExists(sessionID: string, directory: string): Promise<boolean> {

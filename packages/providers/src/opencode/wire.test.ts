@@ -24,6 +24,41 @@ describe('shared helpers', () => {
     expect(splitModelId(null)).toBeNull()
   })
 
+  it('makes OpenCode 2’s write, shell and webfetch tools ask, over an agent that allows all', () => {
+    // OpenCode 2 evaluates the agent's rules, then the session's, and the last
+    // match wins (core/permission/policy.ts). Its `write` tool asks for `edit`
+    // on the file and `shell` for the command (core/file-write.ts,
+    // core/shell/permissions.ts); `*` matches anything (core/util/wildcard.ts).
+    const agent = [{ action: '*', resource: '*', effect: 'allow' }]
+    const evaluate = (mode: 'ask' | 'allow-edits' | 'full', action: string, resource: string) => {
+      const session = permissionRules(mode, 'shell').map((rule) => ({ ...rule, resource: '*' }))
+      // Every rule here is a bare `*` or an exact action name.
+      const match = (pattern: string, value: string) => pattern === '*' || pattern === value
+      return [...agent, ...session].findLast(
+        (rule) => match(rule.action, action) && match(rule.resource, resource),
+      )?.effect
+    }
+    const write = ['edit', 'C:/work/hello.txt'] as const
+    const shell = ['shell', 'ls -la'] as const
+    const fetch = ['webfetch', 'https://example.com'] as const
+    expect([write, shell, fetch].map(([a, r]) => evaluate('ask', a, r))).toEqual([
+      'ask',
+      'ask',
+      'ask',
+    ])
+    expect([write, shell, fetch].map(([a, r]) => evaluate('allow-edits', a, r))).toEqual([
+      'allow',
+      'ask',
+      'ask',
+    ])
+    expect([write, shell, fetch].map(([a, r]) => evaluate('full', a, r))).toEqual([
+      'allow',
+      'allow',
+      'allow',
+    ])
+    expect(evaluate('ask', 'read', 'C:/work/notes.md')).toBe('allow')
+  })
+
   it('maps Ari modes onto rules where the last match wins', () => {
     expect(permissionRules('full', 'bash')).toEqual([{ action: '*', effect: 'allow' }])
     expect(permissionRules('allow-edits', 'shell')).toEqual([
@@ -38,7 +73,10 @@ describe('shared helpers', () => {
 describe('classic wire', () => {
   it('creates sessions with permission rules in the project directory', async () => {
     const { http, requests } = fakeHttp({ 'POST /session': { id: 'ses_1' } })
-    expect(await new WireV1(http).createSession(DIR, 'allow-edits')).toBe('ses_1')
+    expect(await new WireV1(http).createSession(DIR, 'allow-edits')).toEqual({
+      id: 'ses_1',
+      rulesApplied: true,
+    })
     expect(requests[0]).toMatchObject({
       path: '/session',
       headers: { 'x-opencode-directory': encodeURIComponent(DIR) },
@@ -141,11 +179,22 @@ describe('classic wire', () => {
 
 describe('OpenCode 2 wire', () => {
   it('creates sessions at a location with permission rules', async () => {
-    const { http, requests } = fakeHttp({ 'POST /api/session': { data: { id: 'ses_2' } } })
-    expect(await new WireV2(http, 0).createSession(DIR, 'full')).toBe('ses_2')
+    const { http, requests } = fakeHttp({
+      'POST /api/session': { data: { id: 'ses_2', permissions: [] } },
+    })
+    expect(await new WireV2(http, 0).createSession(DIR, 'full')).toEqual({
+      id: 'ses_2',
+      rulesApplied: true,
+    })
     expect(requests[0]?.body).toEqual({
       location: { directory: DIR },
       permissions: [{ action: '*', resource: '*', effect: 'allow' }],
+    })
+    // A preview server that drops the rules says nothing about it but the echo.
+    const preview = fakeHttp({ 'POST /api/session': { data: { id: 'ses_3' } } })
+    expect(await new WireV2(preview.http, 0).createSession(DIR, 'ask')).toEqual({
+      id: 'ses_3',
+      rulesApplied: false,
     })
   })
 

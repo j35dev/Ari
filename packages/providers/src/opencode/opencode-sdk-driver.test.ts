@@ -51,10 +51,11 @@ function setup(
   routes: Record<string, unknown> = {},
   // Fixtures answer instantly, so the stale-idle window is off unless a test is about it.
   timing: { staleIdleMs?: number; errorSettleMs?: number } = { staleIdleMs: 0 },
+  fallback?: Driver,
 ) {
   const { http, requests } = fakeHttp({
     'POST /session': { id: 'ses_new' },
-    'POST /api/session': { data: { id: 'ses_new' } },
+    'POST /api/session': { data: { id: 'ses_new', permissions: [] } },
     ...routes,
   })
   const server = new FakeServer(generation === 'v1' ? new WireV1(http) : new WireV2(http, 0))
@@ -70,6 +71,7 @@ function setup(
     generation,
     pool: pool as unknown as OpencodeServerPool,
     timing,
+    ...(fallback ? { fallback } : {}),
   })
   return { driver, server, pool, requests, specs }
 }
@@ -467,15 +469,71 @@ describe('OpenCode 2 turn', () => {
     })
   })
 
-  it('runs a resumed session when its rules cannot be updated, and says so', async () => {
+  it('runs a resumed Full access session when its rules cannot be updated, and says so', async () => {
     const { driver, server } = setup('v2', {
       'GET /api/session/ses_old': { data: { id: 'ses_old' } },
       'PATCH /api/session/ses_old': new Response('', { status: 404 }),
     })
-    const adapter = await driver.create({ ...base, resumeOf: 'ses_old' })
+    const adapter = await driver.create({ ...base, resumeOf: 'ses_old', permissionMode: 'full' })
     const events = await run(adapter, () =>
       server.emit(v2('session.execution.succeeded', { sessionID: 'ses_old' })),
     )
     expect(events.map((e) => e.type)).toEqual(['session-ref', 'notice', 'done'])
+  })
+
+  describe('a server that drops session rules (OpenCode 2 previews)', () => {
+    const preview = () => {
+      const fallbackAdapter = idleAdapter()
+      const create = vi.fn(async (_session: AdapterSession) => fallbackAdapter)
+      const fallback: Driver = { kind: 'opencode', create }
+      const setupResult = setup(
+        'v2',
+        {
+          // No `permissions` echoed: the rules were not stored.
+          'POST /api/session': { data: { id: 'ses_new' } },
+          'GET /api/session/ses_old': { data: { id: 'ses_old' } },
+          'PATCH /api/session/ses_old': new Response('', { status: 404 }),
+        },
+        { staleIdleMs: 0 },
+        fallback,
+      )
+      return { ...setupResult, create, fallbackAdapter }
+    }
+
+    it('never prompts under Ask or Allow edits; the turn goes to the fallback', async () => {
+      const { driver, requests, create, fallbackAdapter, pool } = preview()
+      for (const permissionMode of ['ask', 'allow-edits'] as const)
+        expect(await driver.create({ ...base, permissionMode })).toBe(fallbackAdapter)
+      expect(create).toHaveBeenCalledTimes(2)
+      // The first turn learned it and removed its session; the second asked nothing.
+      expect(requests.map((r) => `${r.method} ${r.path}`)).toEqual([
+        'POST /api/session',
+        'DELETE /api/session/ses_new',
+      ])
+      expect(requests.some((r) => r.path.endsWith('/prompt'))).toBe(false)
+      expect(pool.release).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not resume a session there under Ask either', async () => {
+      const { driver, requests, create } = preview()
+      await driver.create({ ...base, resumeOf: 'ses_old' })
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(requests.some((r) => r.path.endsWith('/prompt'))).toBe(false)
+    })
+
+    it('still runs Full access turns', async () => {
+      const { driver, server, create } = preview()
+      const adapter = await driver.create({ ...base, permissionMode: 'full' })
+      const events = await run(adapter, () =>
+        server.emit(v2('session.execution.succeeded', { sessionID: 'ses_new' })),
+      )
+      expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'completed' })
+      expect(create).not.toHaveBeenCalled()
+    })
+
+    it('refuses with a clear reason when there is no fallback', async () => {
+      const { driver } = setup('v2', { 'POST /api/session': { data: { id: 'ses_new' } } })
+      await expect(driver.create(base)).rejects.toThrow(/cannot apply per-session permission rules/)
+    })
   })
 })
