@@ -180,10 +180,8 @@ A paired phone is a remote control for the desktop. It creates sessions, sends p
 follow-ups, steers and interrupts turns, and answers approvals with the provider's exact choices,
 while the agents keep running on your computer. Closing the phone changes nothing about the work.
 
-| Mode            | Setup                                                                                       | Account    |
-| --------------- | ------------------------------------------------------------------------------------------- | ---------- |
-| **Tailscale**   | Install Tailscale on both devices, then **Settings → Remote → Enable** and **Enable Serve** | Not needed |
-| **Ari Connect** | An invitation to the hosted service, then **Settings → Remote → Managed connection**        | Required   |
+**Setup.** Install [Tailscale](https://tailscale.com) on both devices, then turn on
+**Settings → Remote → Enable** and **Enable Serve**. No Ari account is needed.
 
 With Tailscale, the desktop publishes its gateway on your tailnet and serves the phone app from
 that same address, so nothing leaves your devices, and the phone can be on cellular while the
