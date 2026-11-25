@@ -390,12 +390,13 @@ it.each(['current', 'legacy-short'] as const)(
   30_000,
 )
 
-it('releases the worktree, branch and orchestration refs and is idempotent', async () => {
+it('releases an integrated worktree, its branch and orchestration refs and is idempotent', async () => {
   const workspace = await manager.isolate(root, repo, 'child')
   if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
   const child = { ...root, id: 'child', parentSessionId: root.id, workspace }
   await writeFile(join(workspace.path, 'new.txt'), 'worker\n')
-  await manager.diff(child, false)
+  const diff = (await manager.diff(child, false)) as { currentSnapshotCommit: string }
+  await manager.integrate(root, repo, child, diff.currentSnapshotCommit)
   expect(git(repo, 'for-each-ref', 'refs/ari/orchestration/child/')).not.toBe('')
   await manager.release('child')
   await expect(readFile(join(workspace.path, 'new.txt'))).rejects.toThrow()
@@ -404,6 +405,57 @@ it('releases the worktree, branch and orchestration refs and is idempotent', asy
   expect(git(repo, 'for-each-ref', 'refs/ari/orchestration/child/')).toBe('')
   await manager.release('child')
   await manager.release('missing-child')
+}, 30_000)
+
+it('keeps committed and uncommitted work on the session branch when a session is deleted', async () => {
+  const workspace = await manager.isolate(root, repo, 'kept-child', 'Kept')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  await writeFile(join(workspace.path, 'committed.txt'), 'committed\n')
+  git(workspace.path, 'add', 'committed.txt')
+  git(workspace.path, 'commit', '-qm', 'agent commit')
+  await writeFile(join(workspace.path, 'file.txt'), 'edited\n')
+  await writeFile(join(workspace.path, 'untracked.txt'), 'untracked\n')
+  await writeFile(join(workspace.path, 'scratch.ignored'), 'ignored\n')
+  const index = await readFile(join(repo, '.git', 'index'))
+
+  await manager.release('kept-child')
+  await expect(fs.lstat(workspace.path)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(git(repo, 'log', '-1', '--format=%s', workspace.branch)).toBe(
+    'Saved by Ari when the session was deleted',
+  )
+  expect(git(repo, 'log', '-1', '--format=%s', `${workspace.branch}~1`)).toBe('agent commit')
+  expect(git(repo, 'show', `${workspace.branch}:file.txt`)).toBe('edited')
+  expect(git(repo, 'show', `${workspace.branch}:untracked.txt`)).toBe('untracked')
+  expect(git(repo, 'show', `${workspace.branch}:committed.txt`)).toBe('committed')
+  expect(git(repo, 'ls-tree', '--name-only', workspace.branch)).not.toContain('scratch.ignored')
+  expect(git(repo, 'for-each-ref', 'refs/ari/orchestration/kept-child/')).toBe('')
+  expect(await readFile(join(repo, '.git', 'index'))).toEqual(index)
+  const saved = git(repo, 'rev-parse', workspace.branch)
+  await manager.release('kept-child')
+  expect(git(repo, 'rev-parse', workspace.branch)).toBe(saved)
+}, 30_000)
+
+it('saves work from a detached session checkout to a session branch of its own', async () => {
+  const workspace = await manager.isolate(root, repo, 'detached-child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  git(workspace.path, 'checkout', '-q', '--detach')
+  await writeFile(join(workspace.path, 'detached.txt'), 'detached work\n')
+  await manager.release('detached-child')
+  expect(git(repo, 'branch', '--list', workspace.branch)).toBe('')
+  const saved = orchestrationBranch('saved', 'detached-child')
+  expect(git(repo, 'show', `${saved}:detached.txt`)).toBe('detached work')
+}, 30_000)
+
+it('deletes a session branch whose commits another branch already contains', async () => {
+  const workspace = await manager.isolate(root, repo, 'merged-child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  await writeFile(join(workspace.path, 'merged.txt'), 'merged\n')
+  git(workspace.path, 'add', 'merged.txt')
+  git(workspace.path, 'commit', '-qm', 'merged work')
+  git(repo, 'branch', 'feature', workspace.branch)
+  await manager.release('merged-child')
+  expect(git(repo, 'branch', '--list', workspace.branch)).toBe('')
+  expect(git(repo, 'show', 'feature:merged.txt')).toBe('merged')
 }, 30_000)
 
 it('preserves shared dependency directories linked into a released worktree', async () => {

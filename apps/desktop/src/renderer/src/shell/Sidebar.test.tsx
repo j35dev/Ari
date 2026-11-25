@@ -513,7 +513,11 @@ describe('SessionsUnderProjects', () => {
     rerender(
       <SessionsUnderProjects
         {...props}
-        sessions={[{ ...session('a', 0, 'proj-1'), updatedAt: Date.now() + 1000 }, list[1]!, list[2]!]}
+        sessions={[
+          { ...session('a', 0, 'proj-1'), updatedAt: Date.now() + 1000 },
+          list[1]!,
+          list[2]!,
+        ]}
       />,
     )
     expect(order()).toEqual(['b', 'c', 'a'])
@@ -656,7 +660,11 @@ describe('SessionsUnderProjects', () => {
     }
     const old = { ...session('old', 2, 'proj-1'), archived: true }
     const { rerender } = render(
-      <SessionsUnderProjects {...props} sessions={[session('live', 1, 'proj-1'), old]} activeSessionId="live" />,
+      <SessionsUnderProjects
+        {...props}
+        sessions={[session('live', 1, 'proj-1'), old]}
+        activeSessionId="live"
+      />,
     )
     const shelf = () => screen.getByRole('button', { name: 'Archived' })
     expect(shelf()).toHaveAttribute('aria-expanded', 'false')
@@ -825,6 +833,37 @@ describe('SessionsUnderProjects', () => {
     await user.click(affordance)
     await user.click(screen.getByRole('menuitem', { name: 'Pin to top' }))
     expect(onTogglePin).toHaveBeenCalledWith('a', true)
+  })
+
+  it('says a worktree session keeps its unmerged work on its branch when deleted', async () => {
+    const onDelete = vi.fn()
+    renderSidebar(
+      [
+        session('wt', 1, 'proj-1', {
+          workspaceKind: 'managed-worktree',
+          branch: 'ari/fix-s_1',
+        }),
+        session('plain', 2, 'proj-1'),
+      ],
+      null,
+      { onDelete },
+    )
+    const user = userEvent.setup()
+    const confirm = async (title: string) => {
+      await user.click(screen.getByRole('button', { name: `Session actions for ${title}` }))
+      await user.click(screen.getByRole('menuitem', { name: 'Delete session' }))
+    }
+
+    await confirm('Session wt')
+    expect(screen.getByText('Delete session? Unmerged work stays on its branch.')).toHaveAttribute(
+      'title',
+      'Delete session? Unmerged work stays on ari/fix-s_1.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Confirm delete' }))
+    expect(onDelete).toHaveBeenCalledWith('wt')
+
+    await confirm('Session plain')
+    expect(screen.getByText('Delete session?')).not.toHaveAttribute('title')
   })
 
   it('confirms before removing a project', async () => {

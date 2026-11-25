@@ -407,14 +407,25 @@ function SessionRow({
   }
 
   if (confirmDelete) {
+    const question = hasChildren ? 'Delete this session and its children?' : 'Delete session?'
+    // Release commits a worktree's unsaved files and keeps its branch unless
+    // the work already lives elsewhere, so say where it goes.
+    const keptOn =
+      session.workspaceKind === 'managed-worktree' && session.branch
+        ? ' Unmerged work stays on its branch.'
+        : ''
     return (
       <div
         className="relative flex h-8 items-center gap-2 rounded-md bg-danger-subtle pr-1.5"
         style={{ paddingLeft: indent }}
       >
         <SessionTreeGuides lastAtDepth={lastAtDepth} />
-        <span className="min-w-0 flex-1 truncate text-xs text-danger">
-          {hasChildren ? 'Delete this session and its children?' : 'Delete session?'}
+        <span
+          className="min-w-0 flex-1 truncate text-xs text-danger"
+          title={keptOn ? `${question} Unmerged work stays on ${session.branch}.` : undefined}
+        >
+          {question}
+          {keptOn}
         </span>
         <button
           type="button"
