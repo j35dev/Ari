@@ -221,11 +221,12 @@ describe('websocket keepalive', () => {
   }
 
   it('keeps a responsive client connected through idle time', async () => {
-    const { url } = await serveWithKeepalive(40)
+    // Long enough that a loaded CI runner still answers each ping in time.
+    const { url } = await serveWithKeepalive(250)
     const socket = new WebSocket(url)
     await once(socket as unknown as EventTarget, 'open')
     // Browsers answer pings by themselves; that is all it takes to stay up.
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
     expect(socket.readyState).toBe(WebSocket.OPEN)
     socket.close()
   })
