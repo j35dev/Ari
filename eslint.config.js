@@ -28,7 +28,7 @@ export default tseslint.config(
     // browser globals the rest of the repo assumes do not describe.
     files: ['apps/mobile/public/sw.js'],
     languageOptions: {
-      globals: { self: 'readonly', caches: 'readonly', fetch: 'readonly', Response: 'readonly', URL: 'readonly' },
+      globals: { self: 'readonly', caches: 'readonly', fetch: 'readonly', Response: 'readonly', URL: 'readonly', setTimeout: 'readonly' },
     },
   },
   {
