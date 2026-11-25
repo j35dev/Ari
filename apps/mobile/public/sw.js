@@ -177,7 +177,7 @@ self.addEventListener('fetch', (event) => {
       // slow; it is replaced by the fresh copy on the next open.
       return Promise.race([
         network.catch(() => fallback),
-        new Promise((resolve) => setTimeout(() => resolve(fallback), SLOW_NETWORK_MS)),
+        new Promise((resolve) => self.setTimeout(() => resolve(fallback), SLOW_NETWORK_MS)),
       ])
     })(),
   )
