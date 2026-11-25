@@ -10,6 +10,7 @@ import {
   CAPTURE_RETRY_MS,
   INPUT_FOCUS_HOLD_MS,
   createElectronBrowserGuest,
+  guardBrowserSession,
   hostedBrowserGuestFactory,
 } from './browser-electron'
 
@@ -17,10 +18,13 @@ const mocks = vi.hoisted(() => {
   const views: WebContentsView[] = []
   /** The webContents holding keyboard focus; focus() moves it, like Chromium. */
   const focus = { current: null as unknown }
+  /** The browser partition, shared by every guest like Electron's. */
+  const session = { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() }
   class WebContentsView {
     readonly webPreferences: Record<string, unknown>
     private bounds = { x: 0, y: 0, width: 0, height: 0 }
     readonly webContents = {
+      session,
       getUserAgent: () => 'Mozilla/5.0 Electron/43.4.1',
       setUserAgent: vi.fn(),
       on: vi.fn(),
@@ -57,7 +61,7 @@ const mocks = vi.hoisted(() => {
     setVisible = vi.fn()
   }
   const BrowserWindow = { fromWebContents: vi.fn() }
-  return { views, focus, WebContentsView, BrowserWindow }
+  return { views, focus, session, WebContentsView, BrowserWindow }
 })
 
 vi.mock('electron', () => ({
@@ -819,5 +823,73 @@ describe('agentLayout', () => {
       height: 700,
       scale: 1,
     })
+  })
+})
+
+describe('createElectronBrowserGuest safety', () => {
+  type RequestHandler = (
+    contents: unknown,
+    permission: string,
+    callback: (granted: boolean) => void,
+  ) => void
+  type CheckHandler = (contents: unknown, permission: string) => boolean
+
+  it('denies in-app pages every web permission but clipboard writes and fullscreen', () => {
+    createElectronBrowserGuest(hostWindow(), 'tab-1', vi.fn())
+    createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
+    // One partition, one handler: a second tab does not reinstall it.
+    expect(mocks.session.setPermissionRequestHandler).toHaveBeenCalledOnce()
+    expect(mocks.session.setPermissionCheckHandler).toHaveBeenCalledOnce()
+    const request = mocks.session.setPermissionRequestHandler.mock.calls[0]?.[0] as RequestHandler
+    const check = mocks.session.setPermissionCheckHandler.mock.calls[0]?.[0] as CheckHandler
+
+    const granted = (permission: string): boolean => {
+      let answer: boolean | undefined
+      request(null, permission, (value) => {
+        answer = value
+      })
+      if (answer === undefined) throw new Error(`no answer for ${permission}`)
+      return answer
+    }
+    for (const permission of [
+      'media',
+      'geolocation',
+      'notifications',
+      'openExternal',
+      'clipboard-read',
+      'pointerLock',
+      'midi',
+    ]) {
+      expect(granted(permission)).toBe(false)
+      expect(check(null, permission)).toBe(false)
+    }
+    for (const permission of ['clipboard-sanitized-write', 'fullscreen']) {
+      expect(granted(permission)).toBe(true)
+      expect(check(null, permission)).toBe(true)
+    }
+  })
+
+  it('installs the guard once per session', () => {
+    const session = { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() }
+    guardBrowserSession(session as never)
+    guardBrowserSession(session as never)
+    expect(session.setPermissionRequestHandler).toHaveBeenCalledOnce()
+  })
+
+  it('stops any frame from navigating to an OS protocol or a file', () => {
+    createElectronBrowserGuest(hostWindow(), 'tab-1', vi.fn())
+    const wc = firstView().webContents
+    const navigate = (url: string, isMainFrame: boolean): boolean => {
+      const details = { url, isMainFrame, preventDefault: vi.fn() }
+      emit(wc, 'will-frame-navigate', details)
+      return details.preventDefault.mock.calls.length === 0
+    }
+    expect(navigate('ms-settings:privacy', false)).toBe(false)
+    expect(navigate('search-ms:query=x', false)).toBe(false)
+    expect(navigate('file:///C:/Windows', false)).toBe(false)
+    expect(navigate('ms-settings:privacy', true)).toBe(false)
+    expect(navigate('https://example.com/embed', false)).toBe(true)
+    expect(navigate('about:srcdoc', false)).toBe(true)
+    expect(navigate('https://example.com/', true)).toBe(true)
   })
 })

@@ -1,4 +1,10 @@
-import { BrowserWindow, WebContentsView, type NativeImage, type WebContents } from 'electron'
+import {
+  BrowserWindow,
+  WebContentsView,
+  type NativeImage,
+  type Session,
+  type WebContents,
+} from 'electron'
 import { encodeCapture } from './browser-capture'
 import { ConsoleBuffer } from './browser-console'
 import type {
@@ -7,7 +13,7 @@ import type {
   BrowserGuestFactory,
   PointerButton,
 } from './browser-service'
-import { isBrowserNavigable } from './browser-url'
+import { isBrowserNavigable, isSubframeNavigable } from './browser-url'
 
 export const BROWSER_PARTITION = 'persist:ari-browser'
 
@@ -15,6 +21,28 @@ export const BROWSER_PARTITION = 'persist:ari-browser'
 export function isBrowserGuest(contents: WebContents): boolean {
   const session = contents.session as unknown as { partition?: string }
   return session.partition === BROWSER_PARTITION
+}
+
+/**
+ * Web permissions an in-app page gets without asking: writing to the
+ * clipboard (a site's copy button) and going fullscreen (a video). With no
+ * handler Electron grants ordinary requests, so every page could reach the
+ * camera, microphone, location and notifications, or open other apps through
+ * `openExternal`. The browser's own features (agent tools, the element picker)
+ * run through executeJavaScript and need none of them.
+ */
+const GUEST_PERMISSIONS: ReadonlySet<string> = new Set(['clipboard-sanitized-write', 'fullscreen'])
+
+const guardedSessions = new WeakSet<Session>()
+
+/** Denies the browser partition every web permission outside {@link GUEST_PERMISSIONS}. */
+export function guardBrowserSession(session: Session): void {
+  if (guardedSessions.has(session)) return
+  guardedSessions.add(session)
+  session.setPermissionRequestHandler((_contents, permission, callback) =>
+    callback(GUEST_PERMISSIONS.has(permission)),
+  )
+  session.setPermissionCheckHandler((_contents, permission) => GUEST_PERMISSIONS.has(permission))
 }
 
 /** sendInputEvent takes accelerator key names, so map DOM names like ArrowRight and " ". */
@@ -196,6 +224,7 @@ export function createElectronBrowserGuest(
   )
   view.setVisible(false)
   const wc = view.webContents
+  guardBrowserSession(wc.session)
   let presented = false
   let heldButton: PointerButton | null = null
   wc.setUserAgent(wc.getUserAgent().replace(/\sElectron\/\S+/g, ''))
@@ -429,6 +458,14 @@ export function createElectronBrowserGuest(
   // has to be cancelled on will-redirect, same as the shell guard.
   wc.on('will-navigate', blockDisallowed)
   wc.on('will-redirect', blockDisallowed)
+  // will-navigate is main-frame only. An iframe pointed at ms-settings: or
+  // search-ms: would otherwise reach the OS protocol handler.
+  wc.on('will-frame-navigate', (details) => {
+    const allowed = details.isMainFrame
+      ? isBrowserNavigable(details.url)
+      : isSubframeNavigable(details.url)
+    if (!allowed) details.preventDefault()
+  })
   wc.setWindowOpenHandler(({ url }) => {
     if (isBrowserNavigable(url)) void wc.loadURL(url)
     return { action: 'deny' }
