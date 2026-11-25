@@ -1507,3 +1507,100 @@ describe('mobile workspace capabilities', () => {
     ).toMatchObject({ attachment: { name: image.name } })
   })
 })
+
+describe('a phone reading over a slow link', () => {
+  function said(id: string, text: string, role: 'user' | 'assistant' = 'user'): UnstampedEvent {
+    return role === 'user'
+      ? {
+          type: 'user.message.added',
+          message: {
+            id,
+            sessionId: 'sess_long',
+            turnId: null,
+            role,
+            parts: [{ type: 'text', text }],
+            createdAt: 1,
+          },
+        }
+      : { type: 'assistant.parts.appended', messageId: id, parts: [{ type: 'text', text }] }
+  }
+
+  it('sends the newest page of a long transcript, and older pages on request', async () => {
+    const store = await tempStore()
+    await store.append('sess_long', sessionCreated('sess_long'))
+    for (let index = 0; index < 7; index++)
+      await store.append('sess_long', said(`m${index}`, `message ${index}`))
+    const host = hostFor(store, fakeEngine())
+    const everything = (await host.query(CALLER, 'session.get', { sessionId: 'sess_long' })) as {
+      messages: { id: string }[]
+      earlier?: number
+    }
+    // A client from before paging still receives everything.
+    expect(everything.messages).toHaveLength(7)
+    expect(everything.earlier).toBeUndefined()
+    const newest = (await host.query(CALLER, 'session.get', {
+      sessionId: 'sess_long',
+      limit: 3,
+    })) as {
+      messages: { id: string }[]
+      earlier: number
+    }
+    expect(newest.messages.map((message) => message.id)).toEqual(['m4', 'm5', 'm6'])
+    expect(newest.earlier).toBe(4)
+    const older = (await host.query(CALLER, 'session.get', {
+      sessionId: 'sess_long',
+      limit: 3,
+      before: 'm4',
+    })) as { messages: { id: string }[]; earlier: number }
+    expect(older.messages.map((message) => message.id)).toEqual(['m1', 'm2', 'm3'])
+    expect(older.earlier).toBe(1)
+  })
+
+  it('reports a running session whose turn is not executing as not live', async () => {
+    const store = await tempStore()
+    await store.append('sess_orphan', sessionCreated('sess_orphan'))
+    await store.append('sess_orphan', {
+      type: 'session.status.changed',
+      from: 'idle',
+      to: 'running',
+      reason: null,
+    })
+    await store.append('sess_busy', sessionCreated('sess_busy'))
+    await store.append('sess_busy', {
+      type: 'session.status.changed',
+      from: 'idle',
+      to: 'running',
+      reason: null,
+    })
+    await store.append('sess_idle', sessionCreated('sess_idle'))
+    const engine = { ...fakeEngine(), hasLiveTurn: (id: string) => id === 'sess_busy' }
+    const host = hostFor(store, engine as FakeEngine)
+    await host.query(CALLER, 'session.list', {})
+    // Past the grace a new turn gets before its task is registered.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000)
+    const rows = (await host.query(CALLER, 'session.list', {})) as { id: string; live?: boolean }[]
+    const live = Object.fromEntries(rows.map((row) => [row.id, row.live]))
+    expect(live).toEqual({ sess_orphan: false, sess_busy: true, sess_idle: undefined })
+    const read = (await host.query(CALLER, 'session.get', {
+      sessionId: 'sess_orphan',
+      limit: 10,
+    })) as {
+      summary: { live?: boolean }
+    }
+    expect(read.summary.live).toBe(false)
+  })
+
+  it('gives a turn that has just started the benefit of the doubt', async () => {
+    const store = await tempStore()
+    await store.append('sess_new', sessionCreated('sess_new'))
+    await store.append('sess_new', {
+      type: 'session.status.changed',
+      from: 'idle',
+      to: 'running',
+      reason: null,
+    })
+    const host = hostFor(store, { ...fakeEngine(), hasLiveTurn: () => false } as FakeEngine)
+    const rows = (await host.query(CALLER, 'session.list', {})) as { live?: boolean }[]
+    expect(rows[0]?.live).toBe(true)
+  })
+})

@@ -65,11 +65,22 @@ export function acceptKey(clientKey: string): string {
     .digest('base64')
 }
 
+/**
+ * How often an idle connection is pinged. Tailscale Serve and mobile carriers
+ * drop a TCP flow that carries nothing for a while, and a phone that was
+ * suspended never sends a close: without traffic neither end learns the
+ * stream is gone. Browsers answer a ping by themselves, so any client counts.
+ */
+export const KEEPALIVE_MS = 25_000
+/** Silence across this many pings means the peer is gone; its subscriptions are released. */
+const DEAD_AFTER_PINGS = 3
+
 export function acceptUpgrade(
   req: IncomingMessage,
   socket: Duplex,
   head?: Buffer,
   subprotocol?: string,
+  keepaliveMs: number = KEEPALIVE_MS,
 ): WebSocketConnection {
   const clientKey = req.headers['sec-websocket-key']
   socket.write(
@@ -113,9 +124,21 @@ export function acceptUpgrade(
     if (signal?.aborted) aborted()
   })
 
+  let lastInbound = Date.now()
+  const keepalive = setInterval(() => {
+    if (Date.now() - lastInbound > keepaliveMs * DEAD_AFTER_PINGS) {
+      socket.destroy()
+      finish()
+      return
+    }
+    sendFrame(OP_PING, Buffer.alloc(0))
+  }, keepaliveMs)
+  keepalive.unref()
+
   const finish = (): void => {
     if (!open) return
     open = false
+    clearInterval(keepalive)
     for (const handler of closeHandlers.splice(0)) handler()
   }
 
@@ -226,6 +249,7 @@ export function acceptUpgrade(
   }
 
   socket.on('data', (chunk: Buffer) => {
+    lastInbound = Date.now()
     buffer = Buffer.concat([buffer, chunk])
     drain()
   })
