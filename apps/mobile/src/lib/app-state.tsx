@@ -8,11 +8,10 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { RemoteModelCatalog, RemoteProject } from '@ari/contracts/remote'
-import type { SessionSummary } from '@ari/contracts/rpc'
+import type { RemoteModelCatalog, RemoteProject, RemoteSessionSummary } from '@ari/contracts/remote'
 import { DeviceKeyring, type DeviceStore } from './device-key'
 import { LifecycleDeviceStore } from './lifecycle-device-store'
-import { GatewayClient } from './gateway-client'
+import { GatewayClient, RemoteError } from './gateway-client'
 import { MobileSession, type ConnectionState } from './session'
 import { IS_CONNECT_BUILD } from './connect'
 import { visibleProjects, visibleSessions } from './visibility'
@@ -31,7 +30,24 @@ import {
 
 const ORIGIN_KEY = LEGACY_ORIGIN_KEY
 const RECONNECT_DELAY_MS = 2000
+/** Ceiling for the retry backoff while the computer cannot be reached. */
+const MAX_RETRY_DELAY_MS = 30_000
+const REFRESH_INTERVAL_MS = 15_000
 const navigateToComputer = (href: string): void => location.assign(href)
+
+/**
+ * How long to wait before the next automatic attempt. A tailnet path that
+ * drops rarely fires `online` when it comes back, so an unreachable computer
+ * is retried for as long as the app is on screen, more slowly each time.
+ */
+export function retryDelay(failures: number): number {
+  return Math.min(MAX_RETRY_DELAY_MS, RECONNECT_DELAY_MS * 2 ** Math.max(0, failures))
+}
+
+/** Keeps the previous value when a poll returns the same data, so nothing re-renders. */
+function same<T>(previous: T, next: T): T {
+  return JSON.stringify(previous) === JSON.stringify(next) ? previous : next
+}
 
 function canReconnect(state: ConnectionState): boolean {
   return (
@@ -53,8 +69,14 @@ export interface AppValue {
   session: MobileSession | null
   capabilities: readonly string[]
   projects: RemoteProject[]
-  sessions: SessionSummary[]
+  sessions: RemoteSessionSummary[]
   catalog: RemoteModelCatalog | null
+  /**
+   * Bumped each time the app returns to the foreground or the network comes
+   * back. Screens that hold a live stream reopen it and reconcile, rather than
+   * trusting a socket the phone may have frozen while it was away.
+   */
+  wake: number
   error: string | null
   refreshing: boolean
   lastSyncedAt: number | null
@@ -115,7 +137,8 @@ export function AppProvider({
   const [booted, setBooted] = useState(false)
   const [capabilities, setCapabilities] = useState<readonly string[]>([])
   const [projects, setProjects] = useState<RemoteProject[]>([])
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [sessions, setSessions] = useState<RemoteSessionSummary[]>([])
+  const [wake, setWake] = useState(0)
   const [catalog, setCatalog] = useState<RemoteModelCatalog | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -142,6 +165,9 @@ export function AppProvider({
     live.current = null
   }, [])
   const refreshingSession = useRef<MobileSession | null>(null)
+  const catalogFor = useRef<MobileSession | null>(null)
+  /** Set by the connection owner: a read found the computer unreachable. */
+  const lost = useRef<(() => void) | null>(null)
   useEffect(() => {
     writeComputers(computers)
   }, [computers])
@@ -159,15 +185,20 @@ export function AppProvider({
     try {
       const [nextProjects, nextSessions, nextCatalog] = await Promise.all([
         session.query<RemoteProject[]>('project.list'),
-        session.query<SessionSummary[]>('session.list'),
-        session.supports('models.list')
+        session.query<RemoteSessionSummary[]>('session.list'),
+        // The catalog rarely changes and is the largest of the three; it is
+        // read once per connection rather than on every poll.
+        session.supports('models.list') && catalogFor.current !== session
           ? session.query<RemoteModelCatalog>('models.list')
-          : Promise.resolve(null),
+          : Promise.resolve(undefined),
       ])
       if (live.current !== session || !session.usable) return
-      setProjects(visibleProjects(nextProjects))
-      setSessions(visibleSessions(nextSessions))
-      setCatalog(nextCatalog)
+      setProjects((previous) => same(previous, visibleProjects(nextProjects)))
+      setSessions((previous) => same(previous, visibleSessions(nextSessions)))
+      if (nextCatalog !== undefined) {
+        catalogFor.current = session
+        setCatalog(nextCatalog)
+      } else if (!session.supports('models.list')) setCatalog(null)
       setLastSyncedAt(Date.now())
       setError(null)
     } catch (failure) {
@@ -175,8 +206,12 @@ export function AppProvider({
         live.current === session &&
         session.state !== 'revoked' &&
         session.state !== 'unknown-device'
-      )
-        setError(failure instanceof Error ? failure.message : 'The computer did not answer.')
+      ) {
+        // A poll that cannot reach the computer means the link is down, even
+        // though no stream reported it: say so and start recovering.
+        if (failure instanceof RemoteError && failure.code === 'unreachable') lost.current?.()
+        else setError(failure instanceof Error ? failure.message : 'The computer did not answer.')
+      }
     } finally {
       if (refreshingSession.current === session) {
         refreshingSession.current = null
@@ -203,17 +238,19 @@ export function AppProvider({
     let refused = false
     let connecting: Promise<void> | null = null
     let retry: ReturnType<typeof setTimeout> | null = null
+    /** Unreachable cycles in a row, for the backoff. */
+    let failures = 0
     const controller = new AbortController()
     const cancelRetry = (): void => {
       if (retry !== null) clearTimeout(retry)
       retry = null
     }
-    const scheduleReconnect = (): void => {
+    const scheduleReconnect = (delay = RECONNECT_DELAY_MS): void => {
       if (cancelled || retry !== null) return
       retry = setTimeout(() => {
         retry = null
         void connect()
-      }, RECONNECT_DELAY_MS)
+      }, delay)
     }
     const client = new GatewayClient({ origin })
     const session = new MobileSession({
@@ -253,7 +290,8 @@ export function AppProvider({
     live.current = session
     setLinked(session)
     // One owner for startup, dropped streams, foreground, online and manual recovery.
-    // MobileSession bounds each connection cycle; an exhausted cycle stays unreachable.
+    // MobileSession bounds each connection cycle; an exhausted cycle is tried
+    // again with a growing delay while the app is on screen.
     const connect = (trigger: 'initial' | 'automatic' | 'manual' = 'automatic'): Promise<void> => {
       const retryAfterUpdate = trigger === 'manual' && session.state === 'version-mismatch'
       if (
@@ -267,13 +305,22 @@ export function AppProvider({
       setError(null)
       connecting = (async () => {
         let connected = false
+        let unreachable = false
         try {
-          const state = await session.connect(controller.signal)
+          // A drop or a return to the foreground resumes the existing token;
+          // a cold start or the user's own retry authorizes from scratch.
+          const state = await session.connect(
+            controller.signal,
+            trigger === 'automatic' ? { resume: true } : {},
+          )
           if (cancelled || live.current !== session) return
           refused = !canReconnect(state)
           connected = state === 'connected'
+          unreachable = state === 'unreachable'
+          failures = unreachable ? failures + 1 : 0
           setConnection(state)
           setCapabilities(session.usable ? session.capabilities : [])
+          if (trigger !== 'automatic') catalogFor.current = null
           if (state === 'connected') await refreshWith(session)
         } catch (failure) {
           if (!cancelled && live.current === session) {
@@ -289,10 +336,15 @@ export function AppProvider({
           if (!cancelled && live.current === session) {
             setBooted(true)
             if (connected && session.state === 'reconnecting') scheduleReconnect()
+            else if (unreachable && document.visibilityState === 'visible')
+              scheduleReconnect(retryDelay(failures))
           }
         }
       })()
       return connecting
+    }
+    lost.current = () => {
+      if (!cancelled && live.current === session) void connect()
     }
     connectionOwner.current = {
       session,
@@ -302,13 +354,29 @@ export function AppProvider({
     }
     void connect('initial')
     const visible = (): void => {
-      if (document.visibilityState === 'visible') void connect()
+      if (document.visibilityState !== 'visible') return
+      // Whatever was open before the phone slept is suspect; screens reopen
+      // their streams on this tick and reconcile from where they left off.
+      setWake((count) => count + 1)
+      failures = 0
+      void connect()
     }
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') void refreshWith(session)
-    }, 15000)
+    }, REFRESH_INTERVAL_MS)
+    // The phone knows it lost its network before any socket does: check now
+    // rather than showing a live-looking screen until a heartbeat misses.
+    const offline = (): void => {
+      if (session.state === 'connected') void connect()
+    }
     document.addEventListener('visibilitychange', visible)
     window.addEventListener('online', visible)
+    window.addEventListener('offline', offline)
+    // iOS restores a page from the back-forward cache without a visibility change.
+    const restored = (event: PageTransitionEvent): void => {
+      if (event.persisted) visible()
+    }
+    window.addEventListener('pageshow', restored)
     return () => {
       cancelled = true
       controller.abort()
@@ -316,9 +384,12 @@ export function AppProvider({
       cancelRetry()
       if (live.current === session) live.current = null
       if (connectionOwner.current?.session === session) connectionOwner.current = null
+      lost.current = null
       clearInterval(interval)
       document.removeEventListener('visibilitychange', visible)
       window.removeEventListener('online', visible)
+      window.removeEventListener('offline', offline)
+      window.removeEventListener('pageshow', restored)
     }
   }, [origin, keyring, refreshWith, managedComputerId])
   const refresh = useCallback(async (): Promise<void> => {
@@ -516,6 +587,7 @@ export function AppProvider({
         projects,
         sessions,
         catalog,
+        wake,
         error,
         refreshing,
         lastSyncedAt,

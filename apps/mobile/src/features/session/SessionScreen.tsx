@@ -1,4 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   ArrowDown,
   ChevronLeft,
@@ -8,18 +17,14 @@ import {
   SlidersHorizontal,
   TerminalSquare,
 } from 'lucide-react'
-import type { Message } from '@ari/contracts/message'
-import type {
-  RemoteApproval,
-  RemoteChangeFile,
-  RemoteChanges,
-  RemoteInput,
-} from '@ari/contracts/remote'
+import type { RemoteChangeFile, RemoteChanges } from '@ari/contracts/remote'
 import type { PermissionMode } from '@ari/contracts/common'
-import type { Session } from '@ari/contracts/session'
-import type { SessionSummary } from '@ari/contracts/rpc'
 import type { ChildTask } from '@ari/contracts/agent-control'
 import { useApp } from '../../lib/app-state'
+import { delivered } from '../../lib/transcript'
+import { useTranscript } from '../../lib/use-transcript'
+import type { OutboxEntry } from './Composer'
+import { ConnectionStrip } from '../../components/ConnectionStrip'
 import { agentState, agentsStatus } from '../../lib/delegation'
 import { Agents } from './Agents'
 import { BottomSheet } from '../../components/ui'
@@ -33,24 +38,13 @@ import { ReviewIntegration } from './ReviewIntegration'
 import { ModelPicker, modelChipLabel } from '../../components/ModelPicker'
 import { SessionControls } from '../../components/SessionControls'
 import { EmptyState } from '../../components/EmptyState'
-import { connectionLabel } from '../../lib/format'
 import { computerName } from '../../lib/computers'
 const Terminal = lazy(async () => {
   const module = await import('./Terminal')
   return { default: module.Terminal }
 })
 
-interface Snapshot {
-  session: Session
-  summary: SessionSummary
-  seq: number
-  messages: Message[]
-  pendingApprovals: RemoteApproval[]
-  pendingInputs: RemoteInput[]
-  /** Absent from a desktop that predates delegation views. */
-  tasks?: ChildTask[]
-  parent?: { id: string; title: string } | null
-}
+const NO_TASKS: ChildTask[] = []
 type View = 'conversation' | 'changes' | 'files' | 'terminal'
 
 /** A phone-sized workspace with resumable activity, explicit approvals, and durable drafts. */
@@ -61,7 +55,12 @@ export function SessionScreen(props: {
   onOpenSession?: (sessionId: string) => void
 }): ReactNode {
   const app = useApp()
-  return <SessionWorkspace key={`${app.origin}:${app.session?.deviceId ?? ''}:${props.sessionId}`} {...props} />
+  return (
+    <SessionWorkspace
+      key={`${app.origin}:${app.session?.deviceId ?? ''}:${props.sessionId}`}
+      {...props}
+    />
+  )
 }
 
 function SessionWorkspace({
@@ -77,7 +76,13 @@ function SessionWorkspace({
   onOpenSession?: (sessionId: string) => void
 }): ReactNode {
   const app = useApp()
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
+  const {
+    transcript: snapshot,
+    failure: readFailure,
+    reload: load,
+    loadEarlier,
+    loadingEarlier,
+  } = useTranscript(sessionId)
   const [view, setView] = useState<View>('conversation')
   const [details, setDetails] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -85,85 +90,70 @@ function SessionWorkspace({
   const [pickingModel, setPickingModel] = useState(false)
   const [archiveConfirm, setArchiveConfirm] = useState(false)
   const [terminalOpened, setTerminalOpened] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
+  const [actionFailure, setFailure] = useState<string | null>(null)
+  const failure = actionFailure ?? readFailure
   const [showJump, setShowJump] = useState(false)
+  const [outbox, setOutbox] = useState<OutboxEntry | null>(null)
   const scroll = useRef<HTMLDivElement>(null)
+  const content = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
-  const seq = useRef<number | null>(null)
-  const inFlight = useRef(false)
-  const alive = useRef(true)
-  useEffect(() => {
-    alive.current = true
-    return () => {
-      alive.current = false
-    }
-  }, [])
-  const load = useCallback(async (): Promise<void> => {
-    const session = app.session
-    if (session === null || !session.usable || inFlight.current) return
-    inFlight.current = true
-    try {
-      const result = await session.query<Snapshot>('session.get', { sessionId })
-      if (!alive.current) return
-      seq.current = result.seq
-      setSnapshot(result)
-      setFailure(null)
-    } catch (error) {
-      if (alive.current) setFailure(messageOf(error))
-    } finally {
-      inFlight.current = false
-    }
-  }, [app.session, sessionId])
-  useEffect(() => {
-    void load()
-  }, [load, app.connection])
-  const loaded = snapshot !== null
-  useEffect(() => {
-    const session = app.session
-    if (session === null || !session.usable || !loaded || !session.supports('events.subscribe'))
-      return
-    let closed = false
-    let scheduled: ReturnType<typeof setTimeout> | null = null
-    const dispose = session.subscribe(sessionId, {
-      ...(seq.current === null ? {} : { fromSeq: seq.current }),
-      onFrame: () => {
-        // A bounded throttle updates during continuous output; trailing debounce can starve forever.
-        if (closed || scheduled !== null) return
-        scheduled = setTimeout(() => {
-          scheduled = null
-          void load()
-        }, 700)
-      },
-      onClose: () => {
-        // MobileSession reports the loss to AppProvider, which owns reconnect.
-        // The connected state opens one fresh stream after this effect cleans up.
-      },
-    })
-    const poll = setInterval(() => {
-      if (document.visibilityState === 'visible') void load()
-    }, 5000)
-    return () => {
-      closed = true
-      dispose()
-      if (scheduled !== null) clearTimeout(scheduled)
-      clearInterval(poll)
-    }
-  }, [app.session, app.connection, sessionId, load, loaded])
-  useEffect(() => {
-    if (follow.current && view === 'conversation')
-      scroll.current?.scrollTo({ top: scroll.current.scrollHeight })
-  }, [snapshot, view])
-  useEffect(() => {
+  /** Distance from the bottom before an older page was added above. */
+  const anchor = useRef<number | null>(null)
+  const firstMessageId = snapshot?.messages[0]?.id
+  // An older page is added above what the user is reading; keep their place.
+  useLayoutEffect(() => {
     const element = scroll.current
-    if (element === null || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => {
-      if (follow.current && view === 'conversation') element.scrollTo({ top: element.scrollHeight })
-    })
-    observer.observe(element)
-    return () => observer.disconnect()
+    if (element !== null && anchor.current !== null) {
+      element.scrollTop = element.scrollHeight - anchor.current
+      anchor.current = null
+    }
+  }, [firstMessageId])
+  const stickToBottom = useCallback((): void => {
+    const element = scroll.current
+    if (element !== null && follow.current && view === 'conversation')
+      element.scrollTop = element.scrollHeight
   }, [view])
+  useLayoutEffect(stickToBottom, [snapshot, outbox, stickToBottom])
+  const hasTranscript = snapshot !== null
+  useEffect(() => {
+    // Content growing (a streamed reply, an image loading, the keyboard
+    // shrinking the viewport) keeps the newest line in view while following.
+    const element = scroll.current
+    const inner = content.current
+    if (element === null || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(stickToBottom)
+    observer.observe(element)
+    if (inner !== null) observer.observe(inner)
+    return () => observer.disconnect()
+  }, [stickToBottom, hasTranscript])
+  // An accepted message leaves the outbox once the conversation shows it.
+  const outboxFrom = useRef(0)
+  const messageCount = useRef(0)
+  useLayoutEffect(() => {
+    messageCount.current = snapshot?.messages.length ?? 0
+  })
+  const changeOutbox = useCallback((entry: OutboxEntry | null): void => {
+    if (entry?.state === 'sending') outboxFrom.current = messageCount.current
+    setOutbox(entry)
+  }, [])
+  useEffect(() => {
+    if (
+      outbox?.state === 'accepted' &&
+      snapshot !== null &&
+      delivered(snapshot.messages, outbox.text, outboxFrom.current)
+    )
+      setOutbox(null)
+  }, [outbox, snapshot])
+  useEffect(() => {
+    if (outbox?.state !== 'accepted') return
+    // A steer, or a desktop that records it differently: do not keep it forever.
+    const expire = setTimeout(() => setOutbox(null), 10_000)
+    return () => clearTimeout(expire)
+  }, [outbox])
   const waiting =
     snapshot !== null && snapshot.pendingApprovals.length + snapshot.pendingInputs.length > 0
+  /** The journal says running, yet nothing executes on the desktop. */
+  const stalled = snapshot?.session.status === 'running' && snapshot.summary.live === false
   // The turn began with the last message the user sent.
   const workingSince = snapshot?.messages.findLast((message) => message.role === 'user')?.createdAt
   const open = (next: View): void => {
@@ -174,13 +164,18 @@ function SessionWorkspace({
   }
   const projectName =
     app.projects.find((project) => project.id === snapshot?.summary.projectId)?.name ?? 'Workspace'
-  const tasks = snapshot?.tasks ?? []
+  const tasks = snapshot?.tasks ?? NO_TASKS
   const parent = snapshot?.parent ?? null
   /** A session that ended its turn to wait is not "ready": its agents are still at it. */
   const delegated = agentsStatus(tasks)
-  const titleOf = (id: string): string | undefined =>
-    tasks.find((task) => task.sessionId === id)?.title ??
-    (parent?.id === id ? parent.title : app.sessions.find((entry) => entry.id === id)?.title)
+  const sessions = app.sessions
+  // Stable between renders, so streamed updates re-render only the message that changed.
+  const titleOf = useCallback(
+    (id: string): string | undefined =>
+      tasks.find((task) => task.sessionId === id)?.title ??
+      (parent?.id === id ? parent.title : sessions.find((entry) => entry.id === id)?.title),
+    [tasks, parent, sessions],
+  )
   /** Each running agent is stopped in turn; the desktop carries a stop down to whatever it delegated. */
   async function stopAgents(): Promise<void> {
     const session = app.session
@@ -242,17 +237,21 @@ function SessionWorkspace({
           </h1>
           <p className="flex items-center gap-1.5 text-[11px] text-fg-muted">
             <span
-              className={`size-1.5 rounded-full ${app.connection !== 'connected' ? 'bg-warning' : snapshot?.session.status === 'running' ? 'status-pulse bg-success' : waiting || delegated?.endsWith('you') === true ? 'bg-warning' : 'bg-fg-subtle'}`}
+              className={`size-1.5 rounded-full ${app.connection !== 'connected' ? 'bg-fg-subtle' : stalled ? 'bg-warning' : snapshot?.session.status === 'running' ? 'status-pulse bg-success' : waiting || delegated?.endsWith('you') === true ? 'bg-warning' : snapshot?.session.status === 'error' ? 'bg-danger' : 'bg-fg-subtle'}`}
             />
             <span className="truncate">
               {`${app.activeComputer?.name ?? (app.origin === null ? 'Computer' : computerName(app.origin))} · ${projectName}, ${
                 app.connection !== 'connected'
-                  ? 'offline'
-                  : snapshot?.session.status === 'running'
-                    ? 'working'
-                    : waiting
-                      ? 'waiting for you'
-                      : (delegated ?? 'ready')
+                  ? 'last known state'
+                  : stalled
+                    ? 'not responding'
+                    : snapshot?.session.status === 'running'
+                      ? 'working'
+                      : waiting
+                        ? 'waiting for you'
+                        : snapshot?.session.status === 'error'
+                          ? 'stopped with an error'
+                          : (delegated ?? 'ready')
               }`}
             </span>
           </p>
@@ -266,18 +265,70 @@ function SessionWorkspace({
           <MoreHorizontal size={20} />
         </button>
       </header>
-      <nav aria-label="Session views" className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-border px-4 pb-2">
-        {([
-          { id: 'conversation', label: 'Chat', available: true },
-          { id: 'changes', label: 'Changes', available: app.session?.supports('changes.files') === true },
-          { id: 'files', label: 'Files', available: app.session?.supports('files.list') === true },
-          { id: 'terminal', label: 'Terminal', available: app.session?.supports('terminal.create') === true },
-        ] as const).filter((entry) => entry.available).map((entry) => <button key={entry.id} type="button" aria-pressed={view === entry.id} className="workspace-tab" disabled={entry.id !== 'conversation' && app.connection !== 'connected'} onClick={() => open(entry.id)}>{entry.label}</button>)}
+      <nav
+        aria-label="Session views"
+        className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto border-b border-border px-4 pb-2"
+      >
+        {(
+          [
+            { id: 'conversation', label: 'Chat', available: true },
+            {
+              id: 'changes',
+              label: 'Changes',
+              available: app.session?.supports('changes.files') === true,
+            },
+            {
+              id: 'files',
+              label: 'Files',
+              available: app.session?.supports('files.list') === true,
+            },
+            {
+              id: 'terminal',
+              label: 'Terminal',
+              available: app.session?.supports('terminal.create') === true,
+            },
+          ] as const
+        )
+          .filter((entry) => entry.available)
+          .map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              aria-pressed={view === entry.id}
+              className="workspace-tab"
+              disabled={entry.id !== 'conversation' && app.connection !== 'connected'}
+              onClick={() => open(entry.id)}
+            >
+              {entry.label}
+            </button>
+          ))}
       </nav>
-      {app.connection !== 'connected' && <div role="status" className="flex shrink-0 items-center gap-3 border-b border-border bg-warning-subtle px-4 py-2 text-xs">
-        <p className="min-w-0 flex-1 leading-relaxed">{connectionLabel(app.connection)}. Your draft stays on this phone; reconnect before sending or answering.</p>
-        <button type="button" aria-label="Reconnect computer" className="min-h-11 shrink-0 font-medium" onClick={() => void app.reconnect().catch((error: unknown) => setFailure(messageOf(error)))}>Reconnect</button>
-      </div>}
+      <ConnectionStrip detail="Your draft stays on this phone." />
+      {stalled && app.connection === 'connected' && (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-1.5 text-xs text-fg-muted"
+        >
+          <p className="min-w-0 flex-1">
+            The agent stopped responding on your computer. Stop it to use this session again.
+          </p>
+          {can('session.interrupt') && (
+            <button
+              type="button"
+              className="min-h-9 shrink-0 font-medium text-fg"
+              onClick={() =>
+                void app.session
+                  ?.send({ op: 'session.interrupt', sessionId })
+                  .then(load)
+                  .then(app.refresh)
+                  .catch((error: unknown) => setFailure(messageOf(error)))
+              }
+            >
+              Stop
+            </button>
+          )}
+        </div>
+      )}
       {toolsOpen && (
         <BottomSheet
           title={snapshot?.summary.title || 'Session'}
@@ -356,7 +407,14 @@ function SessionWorkspace({
           className="flex items-center gap-2 border-b border-border bg-danger-subtle px-4 py-2 text-xs text-danger"
         >
           <span className="flex-1">{failure}</span>
-          <button type="button" className="min-h-11 shrink-0" onClick={() => void load()}>
+          <button
+            type="button"
+            className="min-h-11 shrink-0"
+            onClick={() => {
+              setFailure(null)
+              void load()
+            }}
+          >
             Refresh session
           </button>
         </div>
@@ -367,28 +425,50 @@ function SessionWorkspace({
           const element = scroll.current
           if (element !== null) {
             follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120
-            setShowJump(!follow.current)
+            if (showJump === follow.current) setShowJump(!follow.current)
           }
         }}
-        className={`min-h-0 flex-1 px-5 py-5 ${view === 'terminal' ? 'overflow-hidden' : 'overflow-y-auto'}`}
+        className={`min-h-0 flex-1 overscroll-contain px-5 py-5 [overflow-anchor:none] ${view === 'terminal' ? 'overflow-hidden' : 'overflow-y-auto'}`}
       >
         {snapshot === null && app.connection !== 'connected' ? (
-          <EmptyState title="Reconnect to this session" detail="The conversation stays on your computer. Your saved draft is here when the connection returns." />
-        ) : snapshot === null && (
-          <p role="status" className="text-sm text-fg-muted">
-            Loading session…
-          </p>
+          <EmptyState
+            title="Reconnect to this session"
+            detail="The conversation stays on your computer. Your saved draft is here when the connection returns."
+          />
+        ) : (
+          snapshot === null && (
+            <p role="status" className="text-sm text-fg-muted">
+              Loading session…
+            </p>
+          )
         )}
         {view === 'conversation' && snapshot !== null && (
-          <>
+          <div ref={content}>
+            {snapshot.earlier > 0 && (
+              <button
+                type="button"
+                className="mx-auto mb-4 flex min-h-9 items-center px-3 text-xs text-fg-subtle"
+                disabled={loadingEarlier}
+                onClick={() => {
+                  const element = scroll.current
+                  if (element !== null) anchor.current = element.scrollHeight - element.scrollTop
+                  void loadEarlier()
+                }}
+              >
+                {loadingEarlier
+                  ? 'Loading earlier messages…'
+                  : `Show ${snapshot.earlier} earlier messages`}
+              </button>
+            )}
             <Conversation
               messages={snapshot.messages}
               sessionId={sessionId}
-              running={snapshot.session.status === 'running'}
+              running={snapshot.session.status === 'running' && !stalled}
               titleOf={titleOf}
               onOpenSession={onOpenSession}
+              outbox={outbox}
             />
-          </>
+          </div>
         )}
         {view === 'changes' && (
           <>
@@ -420,7 +500,7 @@ function SessionWorkspace({
             onClick={() => {
               follow.current = true
               setShowJump(false)
-              scroll.current?.scrollTo({ top: scroll.current.scrollHeight })
+              scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: 'smooth' })
             }}
           >
             <ArrowDown size={17} />
@@ -454,7 +534,8 @@ function SessionWorkspace({
       {view === 'conversation' && !waiting && (
         <Composer
           sessionId={sessionId}
-          status={snapshot?.session.status ?? 'idle'}
+          // A dead turn is not work in progress; the banner above offers to stop it.
+          status={stalled ? 'idle' : (snapshot?.session.status ?? 'idle')}
           disabled={!can('session.prompt') || snapshot === null}
           {...(workingSince === undefined ? {} : { workingSince })}
           controls={
@@ -480,6 +561,7 @@ function SessionWorkspace({
           }
           onSent={load}
           onError={setFailure}
+          onOutbox={changeOutbox}
         />
       )}
       {pickingModel && snapshot !== null && (

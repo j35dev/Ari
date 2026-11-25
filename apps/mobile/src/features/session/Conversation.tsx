@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Check, Copy } from 'lucide-react'
 import type { Message } from '@ari/contracts/message'
 import { parseSlashCommand } from '@ari/contracts/slash-commands'
@@ -10,6 +10,7 @@ import { useApp } from '../../lib/app-state'
 import { formatClock } from '../../lib/format'
 import { conversationBlocks, conversationParts } from '../../lib/conversation-parts'
 import { ActivityRun } from './ActivityRun'
+import type { OutboxEntry } from './Composer'
 
 /** A pause this long between messages is worth marking with the time. */
 const PAUSE_MS = 10 * 60 * 1000
@@ -21,6 +22,7 @@ export function Conversation({
   running = false,
   titleOf,
   onOpenSession,
+  outbox = null,
 }: {
   messages: Message[]
   sessionId: string
@@ -29,8 +31,10 @@ export function Conversation({
   /** The current title of another session, for naming who sent a relayed message. */
   titleOf?: (sessionId: string) => string | undefined
   onOpenSession?: (sessionId: string) => void
+  /** A message sent from this phone that the conversation does not show yet. */
+  outbox?: OutboxEntry | null
 }): ReactNode {
-  if (messages.length === 0)
+  if (messages.length === 0 && outbox === null)
     return (
       <EmptyState
         title="What should we work on?"
@@ -40,92 +44,137 @@ export function Conversation({
   return (
     <ol className="space-y-5">
       {messages.map((message, index) => {
-        const presentation = conversationParts(message.parts)
-        const blocks = conversationBlocks(presentation.parts)
         const previous = messages[index - 1]
-        const user = message.role === 'user'
-        // The parent agent still receives these wakes. They are not part of the chat.
-        if (
-          user &&
-          (message.origin?.kind === 'completion' ||
-            message.origin?.kind === 'question' ||
-            message.origin?.kind === 'coordination')
-        )
-          return null
-        const sender = message.origin?.kind === 'session' ? message.origin.sessionId : null
-        const senderTitle = sender === null ? undefined : titleOf?.(sender)
         return (
-          <li
+          <MessageItem
             key={message.id}
-            data-role={message.role}
-            className={user ? 'flex w-full min-w-0 flex-col items-end' : 'w-full min-w-0'}
-          >
-            {(previous === undefined || message.createdAt - previous.createdAt > PAUSE_MS) && (
-              <time
-                dateTime={new Date(message.createdAt).toISOString()}
-                className="mb-3 block w-full text-center text-[11px] text-fg-subtle"
-              >
-                {formatClock(message.createdAt)}
-              </time>
-            )}
-            {sender !== null &&
-              (senderTitle !== undefined && onOpenSession !== undefined ? (
-                <button
-                  type="button"
-                  className="mb-1 min-h-6 text-[11px] text-fg-subtle"
-                  onClick={() => onOpenSession(sender)}
-                >
-                  From {senderTitle}
-                </button>
-              ) : (
-                <p className="mb-1 text-[11px] text-fg-subtle">
-                  From {senderTitle ?? 'a linked session'}
-                </p>
-              ))}
-            {message.role === 'system' && <p className="mb-1 text-[11px] text-fg-subtle">System</p>}
-            <div
-              className={
-                user
-                  ? 'message-bubble max-w-[85%] rounded-[20px] bg-surface-2 px-3.5 py-2.5'
-                  : 'min-w-0'
-              }
-            >
-              {blocks.map((block, position) =>
-                block.kind === 'content' ? (
-                  <Part
-                    key={`${message.id}:${block.sourceIndex}`}
-                    part={block.part}
-                    user={user}
-                    sessionId={sessionId}
-                    streaming={
-                      running &&
-                      !user &&
-                      index === messages.length - 1 &&
-                      position === blocks.length - 1
-                    }
-                  />
-                ) : (
-                  <ActivityRun
-                    key={`${message.id}:${block.sourceIndex}`}
-                    parts={block.parts}
-                    live={
-                      running && index === messages.length - 1 && position === blocks.length - 1
-                    }
-                  />
-                ),
-              )}
-            </div>
-            {message.role === 'assistant' &&
-              presentation.copyText.trim() !== '' &&
-              !(running && index === messages.length - 1) && (
-                <CopyMessage text={presentation.copyText} />
-              )}
-          </li>
+            message={message}
+            sessionId={sessionId}
+            showTime={previous === undefined || message.createdAt - previous.createdAt > PAUSE_MS}
+            active={running && index === messages.length - 1}
+            titleOf={titleOf}
+            onOpenSession={onOpenSession}
+          />
         )
       })}
+      {outbox !== null && <Outgoing entry={outbox} />}
     </ol>
   )
 }
+
+/** The phone's own message, before the computer's copy arrives. */
+function Outgoing({ entry }: { entry: OutboxEntry }): ReactNode {
+  return (
+    <li
+      data-role="user"
+      data-outbox={entry.state}
+      className="flex w-full min-w-0 flex-col items-end"
+    >
+      <div
+        className={`message-bubble max-w-[85%] rounded-[20px] bg-surface-2 px-3.5 py-2.5 transition-opacity ${entry.state === 'sending' ? 'opacity-70' : ''}`}
+      >
+        <p className="whitespace-pre-wrap break-words text-[15px] leading-[1.6]">{entry.text}</p>
+      </div>
+      <p
+        role="status"
+        className={`mt-1 text-[11px] ${entry.state === 'uncertain' ? 'text-warning' : 'text-fg-subtle'}`}
+      >
+        {entry.state === 'sending'
+          ? 'Sending…'
+          : entry.state === 'accepted'
+            ? 'Sent'
+            : 'Not confirmed. Check its receipt below before sending again.'}
+      </p>
+    </li>
+  )
+}
+
+const MessageItem = memo(function MessageItem({
+  message,
+  sessionId,
+  showTime,
+  active,
+  titleOf,
+  onOpenSession,
+}: {
+  message: Message
+  sessionId: string
+  showTime: boolean
+  /** The newest message while the agent works: its last block is still streaming. */
+  active: boolean
+  titleOf: ((sessionId: string) => string | undefined) | undefined
+  onOpenSession: ((sessionId: string) => void) | undefined
+}): ReactNode {
+  const presentation = useMemo(() => conversationParts(message.parts), [message.parts])
+  const blocks = useMemo(() => conversationBlocks(presentation.parts), [presentation])
+  const user = message.role === 'user'
+  // The parent agent still receives these wakes. They are not part of the chat.
+  if (
+    user &&
+    (message.origin?.kind === 'completion' ||
+      message.origin?.kind === 'question' ||
+      message.origin?.kind === 'coordination')
+  )
+    return null
+  const sender = message.origin?.kind === 'session' ? message.origin.sessionId : null
+  const senderTitle = sender === null ? undefined : titleOf?.(sender)
+  return (
+    <li
+      data-role={message.role}
+      className={user ? 'flex w-full min-w-0 flex-col items-end' : 'w-full min-w-0'}
+    >
+      {showTime && (
+        <time
+          dateTime={new Date(message.createdAt).toISOString()}
+          className="mb-3 block w-full text-center text-[11px] text-fg-subtle"
+        >
+          {formatClock(message.createdAt)}
+        </time>
+      )}
+      {sender !== null &&
+        (senderTitle !== undefined && onOpenSession !== undefined ? (
+          <button
+            type="button"
+            className="mb-1 min-h-6 text-[11px] text-fg-subtle"
+            onClick={() => onOpenSession(sender)}
+          >
+            From {senderTitle}
+          </button>
+        ) : (
+          <p className="mb-1 text-[11px] text-fg-subtle">
+            From {senderTitle ?? 'a linked session'}
+          </p>
+        ))}
+      {message.role === 'system' && <p className="mb-1 text-[11px] text-fg-subtle">System</p>}
+      <div
+        className={
+          user ? 'message-bubble max-w-[85%] rounded-[20px] bg-surface-2 px-3.5 py-2.5' : 'min-w-0'
+        }
+      >
+        {blocks.map((block, position) =>
+          block.kind === 'content' ? (
+            <Part
+              key={`${message.id}:${block.sourceIndex}`}
+              part={block.part}
+              user={user}
+              sessionId={sessionId}
+              streaming={active && !user && position === blocks.length - 1}
+            />
+          ) : (
+            <ActivityRun
+              key={`${message.id}:${block.sourceIndex}`}
+              parts={block.parts}
+              live={active && position === blocks.length - 1}
+            />
+          ),
+        )}
+      </div>
+      {message.role === 'assistant' && presentation.copyText.trim() !== '' && !active && (
+        <CopyMessage text={presentation.copyText} />
+      )}
+    </li>
+  )
+})
 
 function Part({
   part,
