@@ -68,7 +68,9 @@ it.each(['returned', 'thrown', 'before checkout'] as const)(
     }
     const first = await runtime.service.invoke('root', 'session.spawn', request)
     const receipt = await operation('root')
-    const [, path, branch, , baseCommit] = add.mock.calls[0]!
+    const [, path, branch] = add.mock.calls[0]!
+    // Ari's base snapshot; the worktree itself starts at the real commit below it.
+    const baseCommit = expect.stringMatching(/^[a-f0-9]{40,64}$/) as unknown as string
     const childSessionId = path.split(/[\\/]/).at(-1)!
     const recovery = {
       childSessionId,
