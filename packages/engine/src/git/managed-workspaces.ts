@@ -33,6 +33,7 @@ const ariIdentity = {
   GIT_COMMITTER_NAME: 'Ari',
   GIT_COMMITTER_EMAIL: 'ari@localhost',
 }
+const SNAPSHOT_MESSAGE = 'Ari workspace snapshot'
 const SAVED_ON_DELETE = 'Saved by Ari when the session was deleted'
 
 /** Non-destructive snapshots and explicit three-way integration in Ari-owned worktrees. */
@@ -74,11 +75,7 @@ export class ManagedWorkspaces {
       GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
     }
     const commit = (
-      await this.#run(
-        cwd,
-        ['commit-tree', tree, '-p', parent ?? head, '-m', 'Ari workspace snapshot'],
-        env,
-      )
+      await this.#run(cwd, ['commit-tree', tree, '-p', parent ?? head, '-m', SNAPSHOT_MESSAGE], env)
     ).trim()
     await this.#run(cwd, ['update-ref', ref, commit])
     return commit
@@ -106,6 +103,22 @@ export class ManagedWorkspaces {
     } finally {
       await rm(scratch, { recursive: true, force: true })
     }
+  }
+
+  /** Whether `commit` is one of Ari's workspace snapshots rather than a user commit. */
+  async #isSnapshot(cwd: string, commit: string): Promise<boolean> {
+    const shown = await this.git.runPlumbing(cwd, [
+      'show',
+      '-s',
+      '--format=%ae%n%ce%n%s',
+      commit,
+      '--',
+    ])
+    return (
+      shown.ok &&
+      shown.value.stdout.trim() ===
+        `${ariIdentity.GIT_AUTHOR_EMAIL}\n${ariIdentity.GIT_COMMITTER_EMAIL}\n${SNAPSHOT_MESSAGE}`
+    )
   }
 
   /** Whether `user.name` and `user.email` are configured for this repository. */
@@ -180,8 +193,13 @@ export class ManagedWorkspaces {
     const base = await this.#resolve(repo, `${prefix}/base^{commit}`)
     if (base && (await this.git.runPlumbing(repo, ['merge-base', '--is-ancestor', tip, base])).ok)
       return true
+    // The branch starts at the real HEAD with the parent's unsaved files on
+    // top, so a session that did nothing saves exactly its base snapshot's
+    // tree. Judge by content, not ancestry.
+    const tipTree = await this.#resolve(repo, `${tip}^{tree}`)
+    if (base && tipTree === (await this.#resolve(repo, `${base}^{tree}`))) return true
     const integrated = await this.#resolve(repo, `${prefix}/integrated^{tree}`)
-    if (integrated && integrated === (await this.#resolve(repo, `${tip}^{tree}`))) return true
+    if (integrated && integrated === tipTree) return true
     const containing = await this.git.runPlumbing(repo, [
       'for-each-ref',
       '--format=%(refname)',
@@ -219,7 +237,10 @@ export class ManagedWorkspaces {
     // branch starts at the commit it was taken on, so merging the branch never
     // brings it into the user's history; the parent's unsaved files follow as
     // uncommitted changes instead.
-    const head = await this.#resolve(cwd, `${baseCommit}^1^{commit}`)
+    // A pinned checkout freezes a real commit, which the branch starts on as is.
+    const head = (await this.#isSnapshot(cwd, baseCommit))
+      ? await this.#resolve(cwd, `${baseCommit}^1^{commit}`)
+      : baseCommit
     if (!head) throw new ControlFailure('integration_failed', 'The base snapshot has no commit.')
     try {
       const result = await this.git.addWorktree(cwd, path, branch, 'create-branch', head)
