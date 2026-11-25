@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron'
 import { createLogger } from '@ari/shared/logger'
 import { isolateDevInstance } from './dev-instance'
 import { startTriageLogging } from './triage/runtime'
+import { installCrashReporting, reportStartupFailure } from './crash-reporting'
 import { DiscordPresence } from './discord-presence'
 import { openSpeechSettings, registerRpc, startAppUpdateChecks } from './rpc'
 import { AriaWidget } from './aria-widget'
@@ -27,6 +28,7 @@ app.commandLine.appendSwitch('disable-quic')
 // its own profile so both can run at once.
 isolateDevInstance(app)
 const closeTriageLogging = startTriageLogging()
+installCrashReporting()
 app.once('will-quit', () => {
   void closeTriageLogging()
 })
@@ -134,8 +136,9 @@ if (!gotLock) {
       })
       window.webContents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
         if (!isMainFrame || code === -3 || quitting) return
-        log.error('main window failed to load', { code, description })
-        app.quit()
+        void reportStartupFailure('The main window failed to load', `${description} (${code})`)
+          .catch(() => undefined)
+          .finally(() => app.quit())
       })
       // Electron does not emit before-quit for Windows session termination.
       // Do not prevent these events; start the same cleanup explicitly.
@@ -201,8 +204,8 @@ if (!gotLock) {
           }
         })
     })
-    .catch((error: unknown) => {
-      log.error('desktop startup failed', { error })
+    .catch(async (error: unknown) => {
+      await reportStartupFailure('Ari failed to start', error).catch(() => undefined)
       app.quit()
     })
 

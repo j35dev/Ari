@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 import type { TriageContext } from '@ari/contracts/triage'
 import { triageRpcParams } from '@ari/contracts/triage'
 import { TriageCaseStore } from './case-store'
-import { TriageLog, redact, collectContext } from './diagnostics'
+import { TriageLog, redact, collectContext, errorDetail } from './diagnostics'
 import { TriageSource } from './source'
 import { TriageService } from './service'
 import { TriageGitHub } from './github'
@@ -103,6 +103,22 @@ describe('triage evidence and persistence', () => {
       redact: (input: string) => string
     }
     expect(cli.redact(input)).toBe(clean)
+  })
+  it('keeps the error and stack a log call carries, redacted, and nothing else from its data', async () => {
+    const path = join(root, 'errors.jsonl')
+    const log = new TriageLog(path)
+    const error = new Error('token=private failed at C:\\Users\\Private\\app.ts')
+    expect(errorDetail({ error, prompt: 'conversation text' })).toBe(error.stack)
+    expect(errorDetail(error)).toBe(error.stack)
+    expect(errorDetail({ error: 'spawn EINVAL' })).toBe('spawn EINVAL')
+    expect(errorDetail({ prompt: 'conversation text' })).toBeUndefined()
+    log.record('desktop:main', 'desktop startup failed', errorDetail({ error }))
+    await log.flush()
+    const entry = JSON.parse(await readFile(path, 'utf8')) as Record<string, string>
+    expect(entry['message']).toBe('desktop startup failed')
+    expect(entry['error']).toContain('Error: token=[redacted]')
+    expect(entry['error']).toContain('triage.test.ts')
+    expect(entry['error']).not.toMatch(/private|Users\\Private/)
   })
   it('bounds persisted logs and excludes old messages', async () => {
     const path = join(root, 'logs.jsonl')
