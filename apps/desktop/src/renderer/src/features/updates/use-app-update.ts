@@ -22,6 +22,11 @@ export interface AppUpdateState {
   phase: UpdatePhase
   /** Offered by a check but not yet downloaded. */
   availableVersion: string | null
+  /**
+   * Set when this build cannot install updates itself (unsigned macOS): the
+   * offered release is downloaded from this page by hand.
+   */
+  releaseUrl: string | null
   /** Downloaded and waiting on a restart. */
   stagedVersion: string | null
   /** Download completion, 0–100, while `phase` is `downloading`. */
@@ -34,6 +39,7 @@ const INITIAL: AppUpdateState = {
   currentVersion: null,
   phase: 'idle',
   availableVersion: null,
+  releaseUrl: null,
   stagedVersion: null,
   progress: null,
   error: null,
@@ -56,6 +62,7 @@ export function reduceUpdateFrame(state: AppUpdateState, frame: AppUpdateFrame):
         currentVersion: frame.currentVersion,
         phase: 'available',
         availableVersion: frame.version,
+        releaseUrl: frame.releaseUrl ?? null,
         stagedVersion: null,
         progress: null,
         error: null,
@@ -81,7 +88,7 @@ export function reduceUpdateFrame(state: AppUpdateState, frame: AppUpdateFrame):
 export interface AppUpdate extends AppUpdateState {
   /** Ask the main process to look for a release now. */
   check: () => Promise<void>
-  /** Download the offered release. */
+  /** Download the offered release, or open its release page when `releaseUrl` is set. */
   download: () => Promise<void>
   /** Relaunch into the staged release. The app restarts; nothing follows. */
   install: () => Promise<void>

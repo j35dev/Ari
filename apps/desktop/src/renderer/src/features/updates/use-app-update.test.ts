@@ -6,6 +6,7 @@ const IDLE: AppUpdateState = {
   currentVersion: '0.3.0',
   phase: 'idle',
   availableVersion: null,
+  releaseUrl: null,
   stagedVersion: null,
   progress: null,
   error: null,
@@ -29,6 +30,17 @@ describe('reduceUpdateFrame', () => {
     })
   })
 
+  it('keeps the release page of a build that cannot self-install', () => {
+    const url = 'https://github.com/j35dev/Ari/releases/tag/v0.4.0'
+    expect(
+      run({ type: 'available', version: '0.4.0', currentVersion: '0.3.0', releaseUrl: url })
+        .releaseUrl,
+    ).toBe(url)
+    expect(run({ type: 'available', version: '0.4.0', currentVersion: '0.3.0' }).releaseUrl).toBe(
+      null,
+    )
+  })
+
   it('reports being current without discarding the running version', () => {
     const state = run({ type: 'checking', manual: false }, { type: 'none', at: 1_700_000_000_000 })
     expect(state.phase).toBe('current')
@@ -36,10 +48,7 @@ describe('reduceUpdateFrame', () => {
   })
 
   it('clears a stale error as soon as new work starts', () => {
-    const state = run(
-      { type: 'error', message: 'offline' },
-      { type: 'checking', manual: true },
-    )
+    const state = run({ type: 'error', message: 'offline' }, { type: 'checking', manual: true })
     expect(state.error).toBeNull()
     expect(state.phase).toBe('checking')
   })

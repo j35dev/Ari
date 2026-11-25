@@ -105,7 +105,9 @@ export function updateStatusText(state: AppUpdateState): string {
     case 'current':
       return 'Up to date.'
     case 'available':
-      return `Ari ${state.availableVersion} is available to download.`
+      return state.releaseUrl !== null
+        ? `Ari ${state.availableVersion} is available. Download it from GitHub to update.`
+        : `Ari ${state.availableVersion} is available to download.`
     case 'downloading':
       return `Downloading Ari ${state.availableVersion ?? state.stagedVersion ?? ''}… ${state.progress ?? 0}%`
     case 'ready':
@@ -116,18 +118,22 @@ export function updateStatusText(state: AppUpdateState): string {
 }
 
 /** The single action the version row offers, which depends on how far along the update is. */
-export function updateActionFor(phase: UpdatePhase): {
+export function updateActionFor(
+  phase: UpdatePhase,
+  manual = false,
+): {
   label: string
   run: 'check' | 'download' | 'install'
 } {
-  if (phase === 'available') return { label: 'Update', run: 'download' }
+  // A build that cannot install updates itself opens the release page instead.
+  if (phase === 'available') return { label: manual ? 'Open release' : 'Update', run: 'download' }
   if (phase === 'ready') return { label: 'Restart', run: 'install' }
   return { label: 'Check for updates', run: 'check' }
 }
 
 /** The version row's action button, wired to whichever step comes next. */
 function VersionAction({ update }: { update: AppUpdate }) {
-  const action = updateActionFor(update.phase)
+  const action = updateActionFor(update.phase, update.releaseUrl !== null)
   const busy = update.phase === 'checking' || update.phase === 'downloading'
   return (
     <Button

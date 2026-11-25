@@ -21,7 +21,11 @@ interface Harness {
   }
 }
 
-function harness(enabled = true, currentVersion = '0.3.0'): Harness {
+function harness(
+  enabled = true,
+  currentVersion = '0.3.0',
+  manualRelease?: Parameters<typeof createUpdateController>[0]['manualRelease'],
+): Harness {
   const checkForUpdates = vi.fn<() => Promise<unknown>>().mockResolvedValue(null)
   const downloadUpdate = vi.fn<() => Promise<unknown>>().mockResolvedValue([])
   const quitAndInstall = vi.fn<() => void>()
@@ -53,6 +57,7 @@ function harness(enabled = true, currentVersion = '0.3.0'): Harness {
     },
     publish: (frame) => frames.push(frame),
     enabled,
+    ...(manualRelease ? { manualRelease } : {}),
   })
   return { controller, handlers, frames, fake }
 }
@@ -83,6 +88,34 @@ describe('createUpdateController', () => {
     ])
     // Announcing must not touch the network a second time.
     expect(h.fake.downloadUpdate).not.toHaveBeenCalled()
+  })
+
+  it('points a build that cannot self-install at the release page instead of downloading', async () => {
+    const open = vi.fn<(url: string) => Promise<void>>().mockResolvedValue(undefined)
+    const pageFor = (version: string) => `https://github.com/j35dev/Ari/releases/tag/v${version}`
+    const h = harness(true, '0.3.0', { pageFor, open })
+    h.controller.check(true)
+    h.handlers.available('0.4.0')
+    const offer = {
+      type: 'available',
+      version: '0.4.0',
+      currentVersion: '0.3.0',
+      releaseUrl: 'https://github.com/j35dev/Ari/releases/tag/v0.4.0',
+    }
+    expect(h.frames.at(-1)).toEqual(offer)
+    expect(h.controller.snapshot()).toEqual([offer])
+
+    expect(h.controller.download()).toEqual({ started: true, reason: null })
+    expect(open).toHaveBeenCalledWith('https://github.com/j35dev/Ari/releases/tag/v0.4.0')
+    expect(h.fake.downloadUpdate).not.toHaveBeenCalled()
+    expect(h.frames.map((frame) => frame.type)).not.toContain('download.started')
+    // Still on offer: the person may want the page again.
+    expect(h.controller.snapshot()).toEqual([offer])
+
+    open.mockRejectedValueOnce(new Error('no browser'))
+    h.controller.download()
+    await flush()
+    expect(h.frames.at(-1)).toEqual({ type: 'error', message: 'no browser' })
   })
 
   it('reports nothing to do as `none` rather than an error', () => {

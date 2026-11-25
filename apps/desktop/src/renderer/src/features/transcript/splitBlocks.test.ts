@@ -20,6 +20,19 @@ describe('splitBlocks', () => {
     expect(blocks[0]).toMatchObject({ key: 'qoder#0', text: 'subscription', isLastOfMessage: true })
     expect(blocks[1]?.text).toBe('opaque fixture more')
   })
+  it('drops reasoning blocks that have no text', () => {
+    const blocks = splitBlocks([
+      msg('empty-thought', [
+        { type: 'thinking', text: '' },
+        { type: 'thinking', text: '  \n' },
+        { type: 'tool-call', callId: 'c1', name: 'bash', argsJson: '"ls"' },
+        { type: 'thinking', text: '' },
+        { type: 'text', text: 'done' },
+      ]),
+    ])
+    expect(blocks.map((block) => block.kind)).toEqual(['tool-call', 'markdown'])
+    expect(blocks[1]).toMatchObject({ text: 'done', isLastOfMessage: true })
+  })
   it('keeps partial results pending until authoritative completion', () => {
     const blocks = splitBlocks([
       msg('pi', [

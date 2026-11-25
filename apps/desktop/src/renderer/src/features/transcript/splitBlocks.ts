@@ -241,6 +241,13 @@ export function splitBlocks(messages: Message[], previous?: TranscriptBlock[]): 
       mergeKind = part.type === 'text' ? 'markdown' : part.type === 'thinking' ? 'thinking' : null
     })
     flushImages()
+    // A reasoning part with no text (some providers open one before any
+    // content arrives) has nothing to show; it renders as a bare "Thought".
+    const visible = blocks.filter(
+      (block) => block.kind !== 'thinking' || (block.text ?? '').trim().length > 0,
+    )
+    blocks.length = 0
+    blocks.push(...visible)
 
     // The message footer attaches to the final markdown or error-note block,
     // whichever part came last.
