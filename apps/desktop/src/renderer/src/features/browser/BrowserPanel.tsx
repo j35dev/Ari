@@ -69,8 +69,6 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
   const hostRef = useRef<HTMLDivElement>(null)
   const tabId = browserTabFor(sessionId)
   const [tab, setTab] = useState<BrowserTabState>(EMPTY)
-  /** Whether the page on screen is still blank, read when the panel leaves it. */
-  const blankRef = useRef(true)
   const [draft, setDraft] = useState('')
   const [picking, setPicking] = useState(false)
   const [still, setStill] = useState<{
@@ -106,16 +104,12 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
   useEffect(() => {
     // Another session's page: start from nothing and place it afresh.
     let live = true
-    blankRef.current = true
     sentRef.current = ''
     setTab({ ...EMPTY, id: tabId })
     setDraft('')
     setStill(null)
     setPicking(false)
-    const show = (next: BrowserTabState): void => {
-      blankRef.current = next.url === 'about:blank' && !next.loading
-      setTab(next)
-    }
+    const show = (next: BrowserTabState): void => setTab(next)
     void rpc
       .invoke('browser.open', { id: tabId })
       .then((next) => {
@@ -144,9 +138,12 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
         height: 0,
       })
       // A session page nobody loaded anything into is not worth keeping; the
-      // agent's tools open it again the moment they need it.
-      if (tabId !== SHARED_TAB && blankRef.current)
-        void rpc.invoke('browser.close', { id: tabId }).catch(() => undefined)
+      // agent's tools open it again the moment they need it. Main decides
+      // whether it is blank: this panel may unmount (a quick remount, React's
+      // StrictMode) before it has heard what the agent loaded, and closing on
+      // its own guess destroyed the agent's page and left the panel empty.
+      if (tabId !== SHARED_TAB)
+        void rpc.invoke('browser.close', { id: tabId, ifBlank: true }).catch(() => undefined)
     }
   }, [tabId])
 
@@ -327,14 +324,16 @@ export function BrowserPanel({ sessionId }: { onClose?: () => void; sessionId?: 
         ) : null}
         {!blank && still !== null ? (
           // Keep the last frame aligned with the live page instead of stretching
-          // it when the host resizes while an overlay hides the guest.
+          // it when the host resizes while an overlay hides the guest. Its
+          // height follows its own aspect: an agent's desktop page fitted into
+          // a narrow panel is shorter than the panel.
           <img
             src={still.dataUrl}
             alt=""
             decoding="sync"
             draggable={false}
-            className="absolute left-0 top-0 max-w-none"
-            style={{ width: still.width, height: still.height }}
+            className="absolute left-0 top-0 h-auto max-w-none"
+            style={{ width: still.width }}
           />
         ) : null}
       </div>

@@ -180,6 +180,19 @@ export class BrowserService {
     return true
   }
 
+  /**
+   * Closes a tab nothing was ever loaded into. A panel leaving a session asks
+   * this rather than `close`: by the time it unmounts, the agent may have
+   * loaded a page into the tab that the panel never heard about.
+   */
+  closeIfBlank(id: string): boolean {
+    const tab = this.#tabs.get(id)
+    if (tab === undefined) return false
+    const state = this.snapshot(id)
+    if (state.url !== 'about:blank' || state.loading) return false
+    return this.close(id)
+  }
+
   snapshot(id: string): BrowserTabState {
     const tab = this.#tab(id)
     const url = tab.guest.getURL()

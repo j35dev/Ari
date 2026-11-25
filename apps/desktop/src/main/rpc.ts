@@ -2944,7 +2944,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('browser.open', async (params) => browsers.open(params.id, params.url))
   r.register('browser.navigate', async (params) => browsers.navigate(params.id, params.url))
   r.register('browser.go', (params) => browsers.go(params.id, params.action))
-  r.register('browser.close', (params) => ({ closed: browsers.close(params.id) }))
+  r.register('browser.close', (params) => ({
+    closed: params.ifBlank === true ? browsers.closeIfBlank(params.id) : browsers.close(params.id),
+  }))
   r.register('browser.layout', (params) => ({
     applied: browsers.layout(
       params.id,

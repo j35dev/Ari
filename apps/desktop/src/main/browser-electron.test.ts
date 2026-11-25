@@ -2,8 +2,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserWindow, WebContents } from 'electron'
 import {
+  AGENT_DESKTOP_VIEWPORT,
   AGENT_TAB_IDLE_MS,
   AGENT_TAB_WAKE_MS,
+  agentLayout,
   CAPTURE_ATTEMPTS,
   CAPTURE_RETRY_MS,
   INPUT_FOCUS_HOLD_MS,
@@ -32,6 +34,8 @@ const mocks = vi.hoisted(() => {
         focus.current = this.webContents
       }),
       sendInputEvent: vi.fn(),
+      enableDeviceEmulation: vi.fn(),
+      disableDeviceEmulation: vi.fn(),
       close: vi.fn(),
       loadURL: vi.fn(async () => {}),
       executeJavaScript: vi.fn(async () => null),
@@ -139,7 +143,8 @@ describe('createElectronBrowserGuest rendering', () => {
       false,
       expect.any(Function),
     )
-    expect(view.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 800, height: 600 })
+    // Before any panel places it, an agent page is a desktop window.
+    expect(view.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, ...AGENT_DESKTOP_VIEWPORT })
   })
 
   it('shows and hides the same live agent page without recreating its view', () => {
@@ -157,6 +162,78 @@ describe('createElectronBrowserGuest rendering', () => {
     expect(win.contentView.addChildView).toHaveBeenCalledTimes(2)
     expect(view.webContents.close).not.toHaveBeenCalled()
     expect(mocks.views).toHaveLength(1)
+  })
+
+  it('lays an agent page out at desktop width, fitted into a narrower panel', () => {
+    const guest = createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
+    const view = firstView()
+    const wc = view.webContents
+
+    guest.setBounds({ x: 900, y: 80, width: 400, height: 600 })
+    guest.setVisible(true)
+    // 1280 CSS px wide at 400/1280, as tall as a desktop window allows.
+    expect(wc.enableDeviceEmulation).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        viewSize: { width: 1280, height: 1000 },
+        scale: 400 / 1280,
+      }),
+    )
+    // The view covers just the scaled page.
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 900, y: 80, width: 400, height: 313 })
+
+    // Agents point in page CSS px; the widget is drawn at the panel's scale.
+    guest.sendMouse('down', 640, 500, 'left', [])
+    expect(wc.sendInputEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'mouseDown', x: 200, y: 156 }),
+    )
+
+    // Hidden, the view itself takes the desktop size and needs no emulation.
+    guest.setVisible(false)
+    expect(wc.disableDeviceEmulation).toHaveBeenCalled()
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 900, y: 80, width: 1280, height: 1000 })
+  })
+
+  it('leaves a panel at least desktop width unscaled', () => {
+    const guest = createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
+    const view = firstView()
+
+    guest.setBounds({ x: 0, y: 0, width: 1400, height: 700 })
+    guest.setVisible(true)
+    expect(view.webContents.enableDeviceEmulation).not.toHaveBeenCalled()
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 1400, height: 700 })
+    guest.sendMouse('down', 640, 500, 'left', [])
+    expect(view.webContents.sendInputEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ x: 640, y: 500 }),
+    )
+  })
+
+  it('takes an agent screenshot of a fitted page at its full size', async () => {
+    vi.useFakeTimers()
+    const guest = createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
+    const view = firstView()
+    const wc = view.webContents
+    guest.setBounds({ x: 900, y: 80, width: 400, height: 600 })
+    guest.setVisible(true)
+    const full = {
+      getSize: () => ({ width: 1600, height: 1250 }),
+      resize: vi.fn(() => full),
+      toJPEG: () => Buffer.from('full-jpeg'),
+      toPNG: () => Buffer.from('full-png'),
+    }
+    const scaled = { ...full, getSize: () => ({ width: 500, height: 392 }) }
+    wc.capturePage.mockResolvedValueOnce(scaled).mockResolvedValueOnce(full)
+
+    const shot = guest.capturePage(undefined, 'jpeg', { width: 1280, height: 1000 })
+    await vi.advanceTimersByTimeAsync(CAPTURE_RETRY_MS * 3)
+
+    expect((await shot)?.toString()).toBe('full-jpeg')
+    // Captured unscaled, slid out of the panel but for one pixel column...
+    expect(view.setBounds).toHaveBeenCalledWith({ x: -379, y: 80, width: 1280, height: 1000 })
+    // ...then fitted back where it was.
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 900, y: 80, width: 400, height: 313 })
+    expect(wc.enableDeviceEmulation).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scale: 400 / 1280 }),
+    )
   })
 
   it('returns keyboard focus to the shell when a focused agent page is covered', () => {
@@ -392,9 +469,11 @@ describe('cached frame fallback', () => {
     deliverFrame()
     firstView().webContents.capturePage.mockRejectedValue(new Error('no copy surface'))
 
-    guest.setBounds({ x: 400, y: 80, width: 800, height: 600 })
+    // Hidden, an agent page keeps its desktop size wherever the panel moves.
+    guest.setBounds({ x: 400, y: 80, width: 1280, height: 800 })
     expect((await guest.capturePage())?.toString()).toBe('cached-png')
-    guest.setBounds({ x: 400, y: 80, width: 400, height: 300 })
+    // A panel of another shape lays the page out anew; the old frame is stale.
+    guest.setBounds({ x: 400, y: 80, width: 400, height: 200 })
     expect(await guest.capturePage()).toBeNull()
   })
 
@@ -721,5 +800,24 @@ describe('hostedBrowserGuestFactory', () => {
     expect(() => hostedBrowserGuestFactory({} as WebContents)('agent:sess-a', vi.fn())).toThrow(
       'browser host window is gone',
     )
+  })
+})
+
+describe('agentLayout', () => {
+  it('is the desktop size with no panel, and fits a narrow one at desktop width', () => {
+    expect(agentLayout(null)).toEqual({ width: 1280, height: 800, scale: 1 })
+    expect(agentLayout({ x: 0, y: 0, width: 640, height: 400 })).toEqual({
+      width: 1280,
+      height: 800,
+      scale: 0.5,
+    })
+    // A tall, narrow panel does not make a portrait page.
+    expect(agentLayout({ x: 0, y: 0, width: 400, height: 900 }).height).toBe(1000)
+    // A wide panel is used as it is.
+    expect(agentLayout({ x: 0, y: 0, width: 1500, height: 700 })).toEqual({
+      width: 1500,
+      height: 700,
+      scale: 1,
+    })
   })
 })
