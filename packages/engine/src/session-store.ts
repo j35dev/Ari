@@ -375,7 +375,8 @@ export class SessionStore extends LegacySessionStore {
           // attempt writes the same contiguous run of events.
           this.#pending.set(id, [...events, ...(this.#pending.get(id) ?? [])])
           if (notes) this.#notes.set(id, new Map([...notes, ...(this.#notes.get(id) ?? [])]))
-          if (changed) this.#changed.set(id, new Set([...changed, ...(this.#changed.get(id) ?? [])]))
+          if (changed)
+            this.#changed.set(id, new Set([...changed, ...(this.#changed.get(id) ?? [])]))
           const failures = (this.#failures.get(id)?.attempts ?? 0) + 1
           const failure = error instanceof Error ? error : new Error(String(error))
           this.#failures.set(id, { error: failure, attempts: failures })
@@ -389,7 +390,8 @@ export class SessionStore extends LegacySessionStore {
       .finally(() => {
         if (this.#writes.get(id) === saving) this.#writes.delete(id)
         // At most one write per session is retained; subsequent deltas keep coalescing.
-        if (!this.#closing && this.#pending.get(id)?.length) this.#schedule(id, this.#retryDelay(id))
+        if (!this.#closing && this.#pending.get(id)?.length)
+          this.#schedule(id, this.#retryDelay(id))
       })
     return saving
   }
@@ -518,7 +520,7 @@ export class SessionStore extends LegacySessionStore {
   async #indexes(): Promise<Map<string, SessionIndex>> {
     const entries = new Map<string, SessionIndex>()
     for (const row of await this.#database!.list()) {
-      let index: SessionIndex | null = null
+      let index: SessionIndex | null
       try {
         index = parseSessionIndex(row.index_json)
       } catch {
