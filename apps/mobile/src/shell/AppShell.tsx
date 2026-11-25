@@ -34,13 +34,23 @@ export function AppShell(): ReactNode {
     const pop = (): void => setRoute(readRoute(location.href))
     window.addEventListener('popstate', pop)
     registerServiceWorker(() => setUpdateReady(true))
-    return () => window.removeEventListener('popstate', pop)
+    // Fetch the screens a tap will open while the phone is idle, so opening a
+    // session never waits on its code crossing the tailnet (the worker keeps it).
+    const warm = setTimeout(() => {
+      void import('../features/session/SessionScreen')
+      void import('../features/new/NewChatScreen')
+    }, 1500)
+    return () => {
+      clearTimeout(warm)
+      window.removeEventListener('popstate', pop)
+    }
   }, [])
   const onOpen = (sessionId: string): void => navigate({ ...route, sessionId })
   /** Back to where this screen was pushed from, or to home when it was opened by a link. */
   const back = (): void => {
     const state = history.state as { ariMobile?: boolean; scope?: string } | null
-    if (state?.ariMobile === true && (state.scope === undefined || state.scope === scope)) history.back()
+    if (state?.ariMobile === true && (state.scope === undefined || state.scope === scope))
+      history.back()
     else {
       const home: MobileRoute =
         route.sessionId !== null
@@ -54,7 +64,8 @@ export function AppShell(): ReactNode {
     return (
       <Suspense
         fallback={
-          <div className="mobile-shell p-5">
+          // Below the notch: this shows while the screen's code arrives over the tailnet.
+          <div className="mobile-shell safe-top p-5">
             <p role="status" className="text-sm text-fg-muted">
               Opening session…
             </p>
@@ -89,10 +100,7 @@ export function AppShell(): ReactNode {
       </div>
     )
   return (
-    <div className="mobile-shell">
-      {updateReady && !updateDismissed && (
-        <UpdateBanner onApply={applyUpdate} onDismiss={() => setUpdateDismissed(true)} />
-      )}
+    <div className="mobile-shell relative">
       <main className="min-h-0 flex-1 overflow-hidden">
         <HomeScreen
           onOpen={onOpen}
@@ -100,6 +108,9 @@ export function AppShell(): ReactNode {
           onSettings={() => navigate({ destination: 'settings', sessionId: null })}
         />
       </main>
+      {updateReady && !updateDismissed && (
+        <UpdateBanner onApply={applyUpdate} onDismiss={() => setUpdateDismissed(true)} />
+      )}
     </div>
   )
 }

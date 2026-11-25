@@ -144,7 +144,7 @@ export function BottomSheet({
       />
       <div
         ref={panel}
-        className={`sheet-rise relative flex max-h-[85%] min-h-0 flex-col overflow-hidden rounded-t-3xl border-t border-border bg-surface-0 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] ${drag > 0 ? '' : 'transition-transform duration-200'}`}
+        className={`sheet-rise relative flex max-h-[85%] min-h-0 flex-col overflow-hidden rounded-t-3xl border-t border-border bg-surface-0 pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] ${drag > 0 ? '' : 'transition-transform duration-200'}`}
         {...(drag > 0 ? { style: { transform: `translateY(${drag}px)` } } : {})}
       >
         <div
