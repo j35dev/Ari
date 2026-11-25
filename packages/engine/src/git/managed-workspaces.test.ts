@@ -153,6 +153,27 @@ it('starts the session branch at HEAD and brings the parent unsaved files as unc
   expect(authors).not.toContain('snapshot')
 }, 30_000)
 
+it('deletes the branch of a session that did nothing beyond the carried-over files', async () => {
+  await writeFile(join(repo, 'file.txt'), 'parent edit\n')
+  await writeFile(join(repo, 'draft.txt'), 'draft\n')
+  const workspace = await manager.isolate(root, repo, 'idle-child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  await manager.release('idle-child')
+  expect(git(repo, 'branch', '--list', 'ari/*')).toBe('')
+  expect(git(repo, 'for-each-ref', 'refs/ari/orchestration/idle-child/')).toBe('')
+}, 30_000)
+
+it('starts a worktree pinned to a real commit on that commit, even a root commit', async () => {
+  const pinned = git(repo, 'rev-parse', 'HEAD')
+  const workspace = await manager.isolate(root, repo, 'pinned-child', 'Pinned', pinned)
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  expect(workspace.baseCommit).toBe(pinned)
+  expect(git(workspace.path, 'rev-parse', 'HEAD')).toBe(pinned)
+  expect(git(workspace.path, 'status', '--porcelain')).toBe('')
+  await manager.release('pinned-child')
+  expect(git(repo, 'branch', '--list', 'ari/*')).toBe('')
+}, 30_000)
+
 it('rejects invalid frozen bases before attempting a worktree', async () => {
   const add = vi.spyOn(manager.git, 'addWorktree')
   await expect(
