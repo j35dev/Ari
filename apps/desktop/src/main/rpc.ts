@@ -16,6 +16,12 @@ import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
 import { cliKindSchema } from '@ari/contracts/settings'
+import {
+  antigravityModels,
+  antigravitySessionModel,
+  ANTIGRAVITY_MODEL_RESTRICTION,
+  isAntigravityGeminiModel,
+} from '@ari/providers/antigravity/policy'
 import { driverKindSchema } from '@ari/contracts/common'
 import type { NavigateFrame, RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
@@ -319,7 +325,23 @@ async function readAcpModels(
   })
   try {
     const created = await connection.newSession(homedir())
-    const models = modelsFromConfigOptions(created.configOptions ?? [])
+    if (kind === 'antigravity') {
+      const config = created.configOptions ?? []
+      const offered = modelsFromConfigOptions(config)
+      const current = currentModelId(config)
+      const modelId = antigravitySessionModel(null, current, offered)
+      const selector = config.find((option) => option.category === 'model')
+      if (modelId !== current && selector?.id) {
+        const refreshed = await connection.setConfigOption(
+          created.sessionId as string,
+          selector.id,
+          modelId,
+        )
+        if (refreshed?.length) created.configOptions = refreshed
+      }
+    }
+    const offeredModels = modelsFromConfigOptions(created.configOptions ?? [])
+    const models = kind === 'antigravity' ? antigravityModels(offeredModels) : offeredModels
     // Same throwaway session: thought_level / effort, plus Grok's
     // initialize `_meta.modelState` reasoningEfforts when configOptions omit them.
     const efforts = mergeEffortCatalogs(
@@ -361,6 +383,13 @@ async function readEffortsForModel(
   kind: DriverKind,
   modelId: string | null | undefined,
 ): Promise<{ id: string; label: string; description?: string; current?: boolean }[]> {
+  if (
+    kind === 'antigravity' &&
+    modelId &&
+    modelId !== 'default' &&
+    !isAntigravityGeminiModel(modelId)
+  )
+    throw new Error(ANTIGRAVITY_MODEL_RESTRICTION)
   const environment = await resolveDetectionEnvironment()
   const detection = await detectConfigured(kind, environment)
   if (!detection.binaryPath) return []
@@ -394,6 +423,12 @@ async function readEffortsForModel(
   try {
     const created = await connection.newSession(homedir())
     let configOptions = created.configOptions ?? []
+    if (kind === 'antigravity')
+      modelId = antigravitySessionModel(
+        modelId ?? null,
+        currentModelId(configOptions),
+        modelsFromConfigOptions(configOptions),
+      )
     if (typeof modelId === 'string' && modelId.length > 0) {
       const modelOption = configOptions.find((o) => o.category === 'model' && o.type === 'select')
       // Matched the way a turn applies it, so a registry id asks for the
@@ -443,6 +478,7 @@ const ALL_CLI_KINDS: DriverKind[] = [
   'hermes',
   'qoder',
   'muse',
+  'antigravity',
 ]
 /** CLIs plus Ari Core — catalogs, detections, and the effort chip all use this. */
 const ALL_PROVIDER_KINDS: DriverKind[] = [...ALL_CLI_KINDS, 'ari-core']
@@ -981,6 +1017,7 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
     { kind: 'hermes', make: (bin) => new HermesDriver(bin) },
     { kind: 'qoder' },
     { kind: 'muse' },
+    { kind: 'antigravity' },
   ]
   // Claimed before anything is awaited: a round already in flight for a kind
   // (the one from start-up, say) must lose to this one however long it takes.

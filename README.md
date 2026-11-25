@@ -110,16 +110,22 @@ profile metadata and is reported as unknown when unavailable.
 | Hermes      | ACP + CLI fallback        |                                                      |
 | Qoder CLI   | Native ACP                | Optional; uses the existing Qoder login              |
 | Muse Code   | Native ACP                | Optional; Muse account; upstream ACP is experimental |
+| Antigravity | Native ACP                | Optional; installed `agy`; Gemini models in Ari      |
 | Ari Core    | Direct harness            | Any OpenAI/Anthropic/Ollama-compatible endpoint      |
 
 Claude Code, Codex, Grok, and OpenCode are enabled by default. Enable Qoder, Muse Code,
-Pi, or Hermes in **Settings → Providers** when you want to use them.
+Antigravity, Pi, or Hermes in **Settings → Providers** when you want to use them.
 Optional providers have installer actions and executable-path settings. Existing saved
 enable/disable choices are preserved. Ari Core uses the API endpoints you add yourself.
 
 An agent you don't use stays out of the model picker; a disabled provider is never launched
 or probed. Native ACP providers reuse their own logins and discover models and reasoning
-levels from the installed runtime. Qoder uses `qoder login`; Muse uses `muse login`.
+levels from the installed runtime. Qoder uses `qoder login`; Muse uses `muse login`;
+Antigravity uses `agy acp --login`. Antigravity runs the user's official CLI through
+the [documented ACP interface](https://antigravity.google/docs/cli/acp/), with Ari's own
+client identity. Google currently limits third-party models to named ACP clients, so
+Ari offers Gemini models and refuses unsupported selections. See the
+[integration and terms review](ANTIGRAVITY.md).
 
 ## Quick start
 

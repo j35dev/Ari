@@ -72,6 +72,7 @@ const DETECTIONS: Detection[] = [
   absent('hermes'),
   { ...absent('qoder'), enabled: false },
   { ...absent('muse'), enabled: false },
+  { ...absent('antigravity'), enabled: false },
   {
     kind: 'ari-core',
     installed: true,
@@ -230,6 +231,7 @@ describe('ProvidersView', () => {
     ['hermes', 'Hermes'],
     ['qoder', 'Qoder'],
     ['muse', 'Muse Code'],
+    ['antigravity', 'Antigravity'],
   ] as const)(
     'enables optional %s from Settings and waits for a fresh detection',
     async (kind, name) => {
