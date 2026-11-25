@@ -692,6 +692,7 @@ function SessionViewContent({
         publishMessages()
       }
       replayDoneRef.current = false
+      let snapshotSeq: number | null = null
       // A retry starts only after a terminal drained the previous buffer.
       setHistoryRetrying(true)
       unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
@@ -708,6 +709,7 @@ function SessionViewContent({
           continuedReplay = true
           replayDoneRef.current = false
           appliedSeqsRef.current = new Set()
+          snapshotSeq = null
           liveBufferRef.current = []
           history.begin()
           setHistoryRetrying(true)
@@ -723,7 +725,10 @@ function SessionViewContent({
           setHistoryFailureSession(frame.replayOutcome === 'incomplete' ? sessionId : null)
           const buffered = liveBufferRef.current
           liveBufferRef.current = []
-          const ordered = buffered.sort((a, b) => a.seq - b.seq)
+          // Live text a snapshot already holds would otherwise land twice.
+          const ordered = buffered
+            .filter((event) => snapshotSeq === null || event.seq > snapshotSeq)
+            .sort((a, b) => a.seq - b.seq)
           const afterBarrier =
             remote && frame.seq !== undefined
               ? ordered.filter((event) => event.seq > frame.seq!)
@@ -775,6 +780,31 @@ function SessionViewContent({
           for (const event of afterBarrier) ingest(event, true)
           publishMessages()
           lastPartRef.current = history.lastPart
+          return
+        }
+        if (frame.snapshot) {
+          // A local open: saved messages land whole; the other events fold as a
+          // replay would. A delegation card keeps the place it was spawned at.
+          const { seq, messages, controls } = frame.snapshot
+          history.seed(
+            seq,
+            messages.map((json) => JSON.parse(json) as Message),
+          )
+          if (messages.length > 0)
+            setProviderContext((previous) =>
+              previous.hasMessages ? previous : { ...previous, hasMessages: true },
+            )
+          for (const row of controls) {
+            const event = JSON.parse(row.json) as JournalEvent
+            if (event.type === 'child.session.spawned')
+              lastPartRef.current =
+                row.anchor === null
+                  ? null
+                  : (JSON.parse(row.anchor) as { messageId: string; parts: number })
+            ingest(event, false, attempt > 1 || continuedReplay)
+          }
+          snapshotSeq = seq
+          if (attempt === 1 && !continuedReplay) publishMessages()
           return
         }
         if (frame.replay === true) {

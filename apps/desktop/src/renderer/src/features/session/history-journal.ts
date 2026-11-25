@@ -1,10 +1,13 @@
 import type { JournalEvent } from '@ari/contracts/events'
-import { pushMessageParts, type MessagePart } from '@ari/contracts/message'
+import { pushMessageParts, type Message, type MessagePart } from '@ari/contracts/message'
 import { applyEvent, initialReadModel } from '@ari/engine/projection'
 import type { MessageFold } from './message-fold'
 import type { TranscriptStore } from './transcript-store'
 import { parseSessionViewKey, registerSessionCacheInvalidator } from './session-scope'
-import { compactEventImages, ImageBlobs } from './image-blobs'
+import { compactEventImages, compactMessageImages, ImageBlobs } from './image-blobs'
+
+const carriesText = (event: JournalEvent): boolean =>
+  event.type === 'user.message.added' || event.type === 'assistant.parts.appended'
 
 /** Cached with the transcript's bounded LRU, never inferred as live execution. */
 const journals = new WeakMap<TranscriptStore, HistoryJournal>()
@@ -39,6 +42,9 @@ export class HistoryJournal {
   #partCounts = new Map<string, number>()
   lastPart: { messageId: string; parts: number } | null = null
   #disposed = false
+  /** Saved messages as of seq: the transcript before any event above it. */
+  #seed: { seq: number; messages: Message[] } | null = null
+  #seedObserved = false
   get viewKey(): string {
     return this.#store.sessionId
   }
@@ -62,11 +68,30 @@ export class HistoryJournal {
   /** A remount starts a fresh authoritative read, keeping the cache visible. */
   begin(): void {
     this.#observed.clear()
+    this.#seedObserved = false
+  }
+
+  /**
+   * Starts from saved messages as of `seq`. Events at or below it that carry
+   * message text are already in them; every other event still arrives on its own.
+   */
+  seed(seq: number, messages: readonly Message[]): void {
+    if (this.#disposed) return
+    this.#seed = { seq, messages: messages.map((m) => compactMessageImages(m, this.#images)) }
+    this.#seedObserved = true
+    for (const [at, event] of this.#events)
+      if (at <= seq && carriesText(event)) this.#events.delete(at)
+    this.#tail = Math.max(this.#tail, seq)
+    this.#rebuild = true
   }
 
   finish(complete: boolean, mode: 'full' | 'resume' = 'full'): void {
     if (this.#disposed || mode === 'resume') return
     if (!complete) return
+    if (this.#seed && !this.#seedObserved) {
+      this.#seed = null
+      this.#rebuild = true
+    }
     for (const seq of this.#events.keys()) {
       if (!this.#observed.has(seq)) {
         this.#events.delete(seq)
@@ -83,6 +108,11 @@ export class HistoryJournal {
     if (this.#disposed) return raw
     const event = compactEventImages(raw, this.#images)
     this.#observed.add(event.seq)
+    if (this.#seed && event.seq <= this.#seed.seq && carriesText(event)) {
+      // A full replay of a seeded transcript: the events say it all again.
+      this.#seed = null
+      this.#rebuild = true
+    }
     const stored = this.#events.get(event.seq)
     if (stored && JSON.stringify(stored) === JSON.stringify(event)) return stored
     if (event.type === 'assistant.parts.appended' && event.replayFromSeq !== undefined) {
@@ -207,6 +237,12 @@ export class HistoryJournal {
       this.#turnId = null
       this.lastPart = null
       this.#partCounts.clear()
+      for (const message of this.#seed?.messages ?? []) {
+        // Saved messages are already folded; they land whole.
+        this.#fold.addUser(message)
+        this.#partCounts.set(message.id, message.parts.length)
+        this.lastPart = { messageId: message.id, parts: message.parts.length }
+      }
       for (const event of [...this.#events.values()].sort((a, b) => a.seq - b.seq))
         this.#append(event)
       this.#rebuild = false

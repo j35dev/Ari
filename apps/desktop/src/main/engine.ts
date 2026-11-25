@@ -39,7 +39,7 @@ import {
   type ProviderAdapter,
 } from '@ari/providers/driver'
 import type { CoordinationMessage } from '@ari/contracts/coordination'
-import type { SessionCommands } from '@ari/contracts/rpc'
+import type { SessionCommands, SessionEventFrame } from '@ari/contracts/rpc'
 import { ARI_SLASH_COMMANDS } from '@ari/contracts/slash-commands'
 import { SessionCommandCache, routeSlashCommand, sessionCommands } from './slash-commands'
 
@@ -1971,6 +1971,20 @@ export class Engine {
    * letting callers stream history out of the process (an IPC frame that big
    * blocks both sides while it serializes) with roughly constant memory.
    */
+  /**
+   * Opens a session's transcript for a local view: its saved messages and
+   * other events in one frame when the store keeps them, else the compact replay.
+   */
+  async openSession(
+    sessionId: string,
+    onChunk: (events: JournalEvent[]) => void,
+    onSnapshot: (snapshot: NonNullable<SessionEventFrame['snapshot']>) => void,
+  ): Promise<void> {
+    const snapshot = await this.#deps.store.readConversationSnapshot(sessionId)
+    if (!snapshot) return this.replaySessionChunks(sessionId, onChunk)
+    onSnapshot({ seq: snapshot.lastSeq, messages: snapshot.messages, controls: snapshot.controls })
+  }
+
   async replaySessionChunks(
     sessionId: string,
     onChunk: (events: JournalEvent[]) => void,

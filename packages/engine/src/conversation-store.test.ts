@@ -455,6 +455,118 @@ describe('SQLite conversations', () => {
     expect(after.at(-1)?.seq).toBe(9)
   })
 
+  /** A turn that streams, spawns a child mid-reply, and acknowledges its report twice. */
+  async function delegatingTurn(store: SessionStore): Promise<void> {
+    await createTurn(store)
+    for (const text of ['Let me ', 'delegate.'])
+      await store.append(session.id, {
+        type: 'assistant.parts.appended',
+        messageId: 'assistant1',
+        parts: [{ type: 'text', text }],
+      })
+    await store.append(session.id, {
+      type: 'assistant.parts.appended',
+      messageId: 'assistant1',
+      parts: [{ type: 'tool-call', callId: 'spawn', name: 'ari', argsJson: '{}' }],
+    })
+    await store.append(session.id, {
+      type: 'child.session.spawned',
+      childSessionId: 'child',
+      title: 'Child',
+      driverKind: 'codex',
+      modelId: null,
+      workspaceKind: 'project',
+      branch: null,
+    })
+    await store.append(session.id, {
+      type: 'assistant.parts.appended',
+      messageId: 'assistant1',
+      parts: [{ type: 'text', text: 'Waiting on it.' }],
+    })
+    for (let n = 0; n < 2; n++)
+      await store.append(session.id, {
+        type: 'child.session.acknowledged',
+        childSessionId: 'child',
+        turnId: 'childTurn',
+        via: 'delivered',
+      })
+    await store.append(session.id, {
+      type: 'turn.settled',
+      turnId: 'turn1',
+      stopReason: 'completed',
+      errorMessage: null,
+    })
+  }
+  const expectedControls = [
+    { seq: 0, type: 'session.created', anchor: null },
+    { seq: 1, type: 'turn.started', anchor: null },
+    { seq: 6, type: 'child.session.spawned', anchor: { messageId: 'assistant1', parts: 3 } },
+    { seq: 8, type: 'child.session.acknowledged', anchor: null },
+    { seq: 10, type: 'turn.settled', anchor: null },
+  ]
+  const controlsOf = (snapshot: Awaited<ReturnType<SessionStore['readConversationSnapshot']>>) =>
+    snapshot!.controls.map((row) => {
+      const event = JSON.parse(row.json) as JournalEvent
+      return {
+        seq: event.seq,
+        type: event.type,
+        anchor: row.anchor === null ? null : (JSON.parse(row.anchor) as unknown),
+      }
+    })
+
+  it('opens a transcript from saved messages and control events, without message deltas', async () => {
+    const store = createStore()
+    await delegatingTurn(store)
+    const snapshot = await store.readConversationSnapshot(session.id)
+    expect(snapshot?.lastSeq).toBe(10)
+    expect(snapshot!.messages.map((json) => JSON.parse(json) as unknown)).toEqual(
+      (await store.load(session.id)).messages,
+    )
+    // The repeated acknowledgment (seq 9) changes nothing and is left out.
+    expect(controlsOf(snapshot)).toEqual(expectedControls)
+  })
+
+  it('includes text still waiting for its batched save', async () => {
+    const store = createStore()
+    await createTurn(store)
+    await store.append(session.id, {
+      type: 'assistant.parts.appended',
+      messageId: 'assistant1',
+      parts: [{ type: 'text', text: 'Streaming now' }],
+    })
+    const snapshot = await store.readConversationSnapshot(session.id)
+    expect(snapshot?.lastSeq).toBe(3)
+    expect(snapshot!.messages.at(-1)).toContain('Streaming now')
+  })
+
+  it('rebuilds the event rows of a conversation saved before they existed, once', async () => {
+    const first = createStore()
+    await delegatingTurn(first)
+    await first.close()
+    const raw = new DatabaseSync(join(rootDir, 'conversations.sqlite'))
+    raw.exec('DELETE FROM conversation_events')
+    raw.exec('UPDATE conversations SET controls_seq=-2')
+    raw.close()
+
+    const store = createStore()
+    const history = vi.spyOn(ConversationDatabase.prototype, 'history')
+    expect(controlsOf(await store.readConversationSnapshot(session.id))).toEqual(expectedControls)
+    expect(history).toHaveBeenCalled()
+    history.mockClear()
+    await store.append(session.id, { type: 'session.updated', title: 'Renamed' })
+    const again = await store.readConversationSnapshot(session.id)
+    expect(history).not.toHaveBeenCalled()
+    expect(controlsOf(again).at(-1)).toMatchObject({ seq: 11, type: 'session.updated' })
+  })
+
+  it('opens a legacy conversation from a snapshot once it is imported', async () => {
+    const legacy = createStore('jsonl')
+    await delegatingTurn(legacy)
+    await legacy.closeJournal(session.id)
+    const store = createStore()
+    expect(controlsOf(await store.readConversationSnapshot(session.id))).toEqual(expectedControls)
+  })
+
   it('destroys SQLite state and legacy data without resurrecting a migrated session', async () => {
     const legacy = createStore('jsonl')
     await createTurn(legacy)

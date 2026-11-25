@@ -58,6 +58,16 @@ if (!db.prepare('PRAGMA table_info(conversation_history)').all().some(column => 
 });
 // Pages walk history by id; without this index every page sorted the whole conversation.
 db.exec('CREATE INDEX IF NOT EXISTS conversation_history_order ON conversation_history(session_id,id)');
+// Every event except message text, so a transcript opens from its saved messages
+// plus these few rows instead of replaying each streamed delta. controls_seq names
+// the last seq they cover; a conversation written before (or by an older build) is
+// rebuilt from history the first time it is opened.
+db.exec(
+  'CREATE TABLE IF NOT EXISTS conversation_events (' +
+  'session_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, seq INTEGER NOT NULL, json TEXT NOT NULL, anchor_json TEXT, PRIMARY KEY(session_id,seq))'
+);
+if (!db.prepare('PRAGMA table_info(conversations)').all().some(column => column.name === 'controls_seq'))
+  db.exec('ALTER TABLE conversations ADD COLUMN controls_seq INTEGER NOT NULL DEFAULT -2');
 const read = db.prepare('SELECT * FROM conversations WHERE id=?');
 const list = db.prepare('SELECT id,index_json FROM conversations');
 const messages = db.prepare('SELECT payload_json FROM conversation_messages WHERE session_id=? ORDER BY ordinal');
@@ -67,6 +77,13 @@ const saveHistory = db.prepare('INSERT INTO conversation_history(session_id,firs
 const history = db.prepare('SELECT id,payload FROM conversation_history WHERE session_id=? AND id>? ORDER BY id');
 const transcriptHistory = db.prepare('SELECT id,payload FROM conversation_history WHERE session_id=? AND id>? AND redundant=0 ORDER BY id');
 const remove = db.prepare('DELETE FROM conversations WHERE id=?');
+const saveControl = db.prepare('INSERT OR REPLACE INTO conversation_events(session_id,seq,json,anchor_json) VALUES (?,?,?,?)');
+const controls = db.prepare('SELECT json,anchor_json FROM conversation_events WHERE session_id=? ORDER BY seq');
+const clearControls = db.prepare('DELETE FROM conversation_events WHERE session_id=? AND seq<=?');
+const markControls = db.prepare('UPDATE conversations SET controls_seq=? WHERE id=?');
+function writeControls(sessionId, events) {
+  for (const event of events) if (event.control) saveControl.run(sessionId, event.seq, event.json, event.anchor ?? null);
+}
 function writeHistory(sessionId, events) {
   let batch = [], bytes = 0;
   const flush = () => {
@@ -105,9 +122,31 @@ parentPort.on('message', ({ id, op, args }) => {
       const expected = existing ? existing.last_seq + 1 : 0;
       // Imports keep legacy gaps/corruption diagnostics. Ordinary writes must be contiguous.
       if (!args.import && (args.events[0]?.seq !== expected || args.events.some((event,index) => event.seq !== expected+index))) throw new Error('Conversation sequence conflict');
+      // A gap left by an older build stays a gap until the next open rebuilds it.
+      const synced = !existing || existing.controls_seq === existing.last_seq;
       save.run(args.sessionId,args.created,args.state,args.index,args.diagnostics,args.lastSeq);
       for (const message of args.messages) saveMessage.run(args.sessionId,message.id,message.ordinal,message.json);
       writeHistory(args.sessionId,args.events);
+      writeControls(args.sessionId,args.events);
+      if (synced) markControls.run(args.lastSeq,args.sessionId);
+      return true;
+    });
+    else if (op === 'snapshot') {
+      const row = read.get(args.sessionId);
+      result = !row ? null
+        : row.controls_seq !== row.last_seq ? { stale: true, lastSeq: row.last_seq }
+        : {
+          lastSeq: row.last_seq,
+          messages: messages.all(args.sessionId).map(row => row.payload_json),
+          controls: controls.all(args.sessionId).map(row => ({ json: row.json, anchor: row.anchor_json })),
+        };
+    } else if (op === 'rebuildControls') result = transaction(() => {
+      const row = read.get(args.sessionId);
+      if (!row) return false;
+      // Saves since the history read already wrote their own rows.
+      clearControls.run(args.sessionId, args.throughSeq);
+      writeControls(args.sessionId, args.events);
+      markControls.run(row.last_seq, args.sessionId);
       return true;
     });
     else if (op === 'delete') result = transaction(() => remove.run(args.sessionId).changes > 0);
@@ -136,8 +175,32 @@ export interface ConversationCommit {
   diagnostics: string
   lastSeq: number
   messages: { id: string; ordinal: number; json: string }[]
-  events: { seq: number; json: string }[]
+  events: SavedEvent[]
   import?: boolean
+}
+
+/** One stored event; `control` ones are also kept for opening the transcript. */
+export interface SavedEvent {
+  seq: number
+  json: string
+  control?: boolean
+  /** JSON {@link TranscriptAnchor} of a delegation card. */
+  anchor?: string
+}
+
+/** Where a delegation card sits: after this part of the transcript. */
+export interface TranscriptAnchor {
+  messageId: string
+  parts: number
+}
+
+/** Saved messages plus every non-message event, enough to open a transcript. */
+export interface ConversationSnapshot {
+  lastSeq: number
+  /** Message JSON in transcript order. */
+  messages: string[]
+  /** Event JSON in seq order, with a delegation card's anchor JSON. */
+  controls: { json: string; anchor: string | null }[]
 }
 
 export class ConversationDatabase {
@@ -220,6 +283,16 @@ export class ConversationDatabase {
   ): Promise<{ id: number; json: string }[]> {
     return (await this.exists()) ? this.#request('history', { sessionId, afterId, transcript }) : []
   }
+  /** Null when the conversation is unknown; `stale` until its event rows are rebuilt. */
+  async snapshot(
+    sessionId: string,
+  ): Promise<ConversationSnapshot | { stale: true; lastSeq: number } | null> {
+    return (await this.exists()) ? this.#request('snapshot', { sessionId }) : null
+  }
+  /** Replaces the event rows through `throughSeq`, read from history. */
+  rebuildControls(sessionId: string, throughSeq: number, events: SavedEvent[]): Promise<boolean> {
+    return this.#request('rebuildControls', { sessionId, throughSeq, events })
+  }
   async delete(sessionId: string): Promise<boolean> {
     return (await this.exists()) ? this.#request('delete', { sessionId }) : false
   }
@@ -242,6 +315,28 @@ export function savedMessages(
       : [{ id: message.id, ordinal, json: JSON.stringify(message) }],
   )
 }
-export function savedEvents(events: readonly JournalEvent[]): ConversationCommit['events'] {
-  return events.map((event) => ({ seq: event.seq, json: JSON.stringify(event) }))
+export function savedEvents(
+  events: readonly JournalEvent[],
+  notes?: ReadonlyMap<number, EventNote>,
+): SavedEvent[] {
+  return events.map((event) => {
+    const note = notes?.get(event.seq)
+    const json = JSON.stringify(event)
+    if (!isControlEvent(event) || note?.repeat) return { seq: event.seq, json }
+    return note?.anchor
+      ? { seq: event.seq, json, control: true, anchor: JSON.stringify(note.anchor) }
+      : { seq: event.seq, json, control: true }
+  })
+}
+
+/** What only the writer knows about an event when it is appended. */
+export interface EventNote {
+  /** An acknowledgment that changes nothing already recorded. */
+  repeat?: boolean
+  anchor?: TranscriptAnchor
+}
+
+/** Everything but message text; a transcript is opened from saved messages instead. */
+export function isControlEvent(event: JournalEvent): boolean {
+  return event.type !== 'user.message.added' && event.type !== 'assistant.parts.appended'
 }

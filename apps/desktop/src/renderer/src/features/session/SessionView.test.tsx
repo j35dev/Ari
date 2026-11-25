@@ -3699,6 +3699,78 @@ describe('SessionView delegated work', () => {
     expect(open).toHaveBeenCalledTimes(2)
   })
 
+  it('places a delegation card where it was spawned when opened from a saved snapshot', async () => {
+    render(
+      <ToastProvider>
+        <SessionView
+          sessionId="sess_1"
+          defaults={DEFAULTS}
+          onDefaultsChange={() => undefined}
+          onOpenSession={vi.fn()}
+          childSessions={[CHILD]}
+        />
+      </ToastProvider>,
+    )
+    await screen.findByLabelText('Message')
+    const event = (seq: number, body: Record<string, unknown>) =>
+      JSON.stringify({ seq, at: seq, sessionId: 'sess_1', ...body })
+    act(() => {
+      sessionListener?.({
+        sessionId: 'sess_1',
+        replay: true,
+        snapshot: {
+          seq: 6,
+          messages: [
+            JSON.stringify({
+              id: 'm1',
+              sessionId: 'sess_1',
+              turnId: 'turn_1',
+              role: 'user',
+              parts: [{ type: 'text', text: 'Split the work' }],
+              createdAt: 1,
+            }),
+            JSON.stringify({
+              id: 'm2',
+              sessionId: 'sess_1',
+              turnId: 'turn_1',
+              role: 'assistant',
+              parts: [
+                { type: 'tool-call', callId: 'c1', name: 'Bash', argsJson: '{}' },
+                { type: 'text', text: 'Delegated the parser.' },
+              ],
+              createdAt: 3,
+            }),
+          ],
+          controls: [
+            { json: event(2, { type: 'turn.started', turnId: 'turn_1' }), anchor: null },
+            {
+              json: event(4, {
+                type: 'child.session.spawned',
+                childSessionId: 'child_1',
+                title: 'Worker',
+                driverKind: 'codex',
+                modelId: 'gpt-5',
+                workspaceKind: 'managed-worktree',
+                branch: 'ari/child_1',
+                role: 'implementation',
+              }),
+              anchor: JSON.stringify({ messageId: 'm2', parts: 1 }),
+            },
+            {
+              json: event(6, { type: 'turn.settled', turnId: 'turn_1', stopReason: 'completed' }),
+              anchor: null,
+            },
+          ],
+        },
+      })
+    })
+    emitReplayDone()
+
+    const card = await screen.findByRole('button', { name: 'Open Parser worker: Result ready' })
+    const reply = screen.getByText('Delegated the parser.')
+    expect(card.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('keeps child approvals and stop-all in the composer while the parent is idle', async () => {
     const open = vi.fn()
     const original = invokeMock.getMockImplementation()!
