@@ -38,6 +38,20 @@ export interface RegistryDeps {
   sendBatch?: (frame: StreamBatchFrame) => void
 }
 
+/**
+ * A schema failure as a sentence: "sessionId: expected string, received
+ * undefined". zod's own message is a JSON dump of every issue, and it reaches
+ * people verbatim in error toasts.
+ */
+export function describeIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path.map(String).join('.')
+      return path.length > 0 ? `${path}: ${issue.message}` : issue.message
+    })
+    .join('; ')
+}
+
 export class RpcRegistry {
   readonly #handlers = new Map<RpcMethod, (params: unknown) => Promise<unknown>>()
   readonly #subscribers = new Map<string, StreamSubscriber>()
@@ -52,7 +66,7 @@ export class RpcRegistry {
     this.#handlers.set(method, async (raw) => {
       const parsed = schema.safeParse(raw)
       if (!parsed.success) {
-        throw new Error(`invalid params for ${method}: ${parsed.error.message}`)
+        throw new Error(`invalid params for ${method}: ${describeIssues(parsed.error)}`)
       }
       return (handler as (p: unknown) => Promise<RpcResults[M]> | RpcResults[M])(parsed.data)
     })

@@ -570,8 +570,12 @@ export type AppUpdateFrame =
   | { type: 'checking'; manual: boolean }
   /** Check finished and this build is current. */
   | { type: 'none'; at: number }
-  /** A newer release exists and has not been downloaded. */
-  | { type: 'available'; version: string; currentVersion: string }
+  /**
+   * A newer release exists and has not been downloaded. `releaseUrl` is set
+   * when this build cannot install updates itself (an unsigned macOS build):
+   * `app.update.download` then opens that release page instead.
+   */
+  | { type: 'available'; version: string; currentVersion: string; releaseUrl?: string }
   | { type: 'download.started'; version: string }
   | { type: 'download.progress'; percent: number }
   /** Downloaded and staged; `app.update.install` will relaunch into it. */

@@ -67,6 +67,15 @@ describe('WelcomePanel', () => {
     expect(await screen.findByText('Connect a model to begin')).toBeInTheDocument()
   })
 
+  it('names the platform’s modifier key in the keyboard hints, never "Mod"', async () => {
+    renderPanel(true)
+    await screen.findByRole('button', { name: 'Start a new session' })
+    const mod = /mac|iphone|ipad|ipod/i.test(navigator.platform) ? 'Cmd' : 'Ctrl'
+    expect(screen.getByText(`${mod}+N`)).toBeInTheDocument()
+    expect(screen.getByText(`${mod}+K`)).toBeInTheDocument()
+    expect(screen.queryByText(/Mod\+/)).not.toBeInTheDocument()
+  })
+
   it('offers to start a session once a project exists', async () => {
     const { onCreateSession } = renderPanel(true)
 

@@ -24,6 +24,17 @@ declare global {
 
 let subscriptionCounter = 0
 
+/**
+ * Electron wraps every error a main-process handler throws as "Error invoking
+ * remote method 'ari:x': Error: <message>". That transport wording is noise
+ * wherever the message reaches a person, so it is stripped once, here.
+ */
+const REMOTE_PREFIX = /^Error invoking remote method '[^']*':\s*(?:[A-Za-z]*Error:\s*)?/
+
+export function stripRemotePrefix(message: string): string {
+  return message.replace(REMOTE_PREFIX, '')
+}
+
 function bridge<T>(value: unknown): T {
   return value as T
 }
@@ -31,7 +42,12 @@ function bridge<T>(value: unknown): T {
 /** Typed renderer-side RPC client over the sandboxed preload bridge. */
 export const rpc = {
   async invoke<M extends RpcMethod>(method: M, params?: unknown): Promise<RpcResults[M]> {
-    return bridge<RpcResults[M]>(await window.ari.invoke(method, params))
+    try {
+      return bridge<RpcResults[M]>(await window.ari.invoke(method, params))
+    } catch (error) {
+      if (error instanceof Error) error.message = stripRemotePrefix(error.message)
+      throw error
+    }
   },
 
   subscribe<S extends StreamName>(

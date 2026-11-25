@@ -17,6 +17,23 @@ export function isBrowserNavigable(rawUrl: string): boolean {
   }
 }
 
+/**
+ * Schemes a page's own frames use to render content: web pages, srcdoc and
+ * blank frames, and data/blob documents. Anything else (file:, ms-settings:,
+ * search-ms:, mailto:, an app's custom protocol) would hand the URL to the OS
+ * or reach the disk, so a subframe may not navigate there.
+ */
+const SUBFRAME_NAVIGABLE = new Set(['http:', 'https:', 'about:', 'data:', 'blob:'])
+
+/** True when a subframe of an in-app page may navigate to this URL. */
+export function isSubframeNavigable(rawUrl: string): boolean {
+  try {
+    return SUBFRAME_NAVIGABLE.has(new URL(rawUrl).protocol)
+  } catch {
+    return false
+  }
+}
+
 function isLoopbackHost(value: string): boolean {
   const host = value.split('/')[0]?.split(':')[0]?.toLowerCase() ?? ''
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1'

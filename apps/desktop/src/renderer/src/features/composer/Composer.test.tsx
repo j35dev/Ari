@@ -102,6 +102,50 @@ describe('Composer', () => {
     expect(onStop).toHaveBeenCalledOnce()
   })
 
+  it('stops a running turn on Esc, and only a running one', async () => {
+    const user = userEvent.setup()
+    const onStop = vi.fn()
+    const { rerender } = render(<Composer onSend={vi.fn()} onStop={onStop} running={false} />)
+    const input = screen.getByLabelText('Message')
+    await user.click(input)
+    await user.keyboard('{Escape}')
+    expect(onStop).not.toHaveBeenCalled()
+    rerender(<Composer onSend={vi.fn()} onStop={onStop} running />)
+    await user.keyboard('{Shift>}{Escape}{/Shift}')
+    expect(onStop).not.toHaveBeenCalled()
+    await user.keyboard('{Escape}')
+    expect(onStop).toHaveBeenCalledOnce()
+  })
+
+  it('lets an open slash popup take Esc before the turn does', async () => {
+    const user = userEvent.setup()
+    const onStop = vi.fn()
+    render(
+      <Composer
+        onSend={vi.fn()}
+        onStop={onStop}
+        running
+        commands={[
+          {
+            name: 'compact',
+            description: 'Free up context',
+            argumentHint: null,
+            source: 'builtin',
+            run: 'prompt-text',
+          },
+        ]}
+      />,
+    )
+    const input = screen.getByLabelText('Message')
+    await user.type(input, '/co')
+    expect(screen.getByRole('listbox', { name: 'Slash commands' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox', { name: 'Slash commands' })).toBeNull()
+    expect(onStop).not.toHaveBeenCalled()
+    await user.keyboard('{Escape}')
+    expect(onStop).toHaveBeenCalledOnce()
+  })
+
   it('drops the queued tab the moment its message leaves the queue', () => {
     const onRemoveQueued = vi.fn()
     const { rerender } = render(

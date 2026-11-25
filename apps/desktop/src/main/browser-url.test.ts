@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isBrowserNavigable, resolveBrowserUrl } from './browser-url'
+import { isBrowserNavigable, isSubframeNavigable, resolveBrowserUrl } from './browser-url'
 
 describe('isBrowserNavigable', () => {
   it('allows http, https, and about:blank', () => {
@@ -13,6 +13,32 @@ describe('isBrowserNavigable', () => {
     expect(isBrowserNavigable('javascript:alert(1)')).toBe(false)
     expect(isBrowserNavigable('data:text/html,hi')).toBe(false)
     expect(isBrowserNavigable('mailto:hi@example.com')).toBe(false)
+  })
+})
+
+describe('isSubframeNavigable', () => {
+  it('lets frames render web, blank, data and blob documents', () => {
+    for (const url of [
+      'https://example.com/embed',
+      'http://localhost:5173/',
+      'about:blank',
+      'about:srcdoc',
+      'data:text/html,hi',
+      'blob:https://example.com/0f6c',
+    ])
+      expect(isSubframeNavigable(url)).toBe(true)
+  })
+
+  it('refuses OS protocols, files, and unparseable URLs', () => {
+    for (const url of [
+      'ms-settings:privacy',
+      'search-ms:query=x',
+      'file:///C:/Windows/System32',
+      'mailto:a@b.c',
+      'ari://open',
+      'not a url',
+    ])
+      expect(isSubframeNavigable(url)).toBe(false)
   })
 })
 

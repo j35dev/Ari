@@ -32,6 +32,7 @@ export const APP_SHORTCUTS: readonly AppShortcut[] = [
   { id: 'JumpToSpace', label: 'Jump to space 1–9', chord: 'Mod+Alt+1…9' },
   { id: 'CloseSpace', label: 'Close space', chord: 'Mod+Alt+W' },
   { id: 'ClosePalette', label: 'Close palette', chord: 'Escape' },
+  { id: 'StopTurn', label: 'Stop the running turn', chord: 'Escape' },
 ]
 
 export function appShortcuts(ariaEnabled = false): readonly AppShortcut[] {

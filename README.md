@@ -12,7 +12,7 @@ checkpoints live on your disk.
 
 <img width="1917" height="1015" alt="Ari desktop" src="https://github.com/user-attachments/assets/4bfd4225-4628-4a35-bcb9-08db759068d9" />
 
-> Status: **pre-alpha, under active construction.**
+> Status: **beta.** Expect rough edges, and please [report them](https://github.com/j35dev/Ari/issues).
 
 Aria, the shared coordinator chat, is an optional experiment. Enable it in
 **Settings → Experimental → Aria**. It is off by default; chat history and saved
@@ -20,6 +20,7 @@ choices are preserved. General dictation works independently of this setting.
 
 ## Contents
 
+- [Install](#install)
 - [Why Ari](#why-ari)
 - [Features](#features)
 - [Supported agents](#supported-agents)
@@ -32,6 +33,59 @@ choices are preserved. General dictation works independently of this setting.
 - [Project status](#project-status)
 - [Contributing](#contributing)
 - [License](#license)
+
+## Install
+
+Download the file for your system from the [latest release](https://github.com/j35dev/Ari/releases/latest):
+
+| System                | File                               |
+| --------------------- | ---------------------------------- |
+| Windows 10/11 (x64)   | `Ari-Setup-<version>.exe`          |
+| macOS (Apple / Intel) | `Ari-<version>-universal.dmg`      |
+| Linux (x64)           | `Ari-<version>.deb` or `.AppImage` |
+
+Ari is open source and its builds are **not signed with a paid certificate**, so
+each system warns you the first time:
+
+- **Windows.** SmartScreen says "Windows protected your PC". Click **More info → Run
+  anyway**. The warning appears because the installer has no code-signing certificate,
+  not because anything was found in it.
+- **macOS.** The app is ad-hoc signed but not notarized by Apple. Drag Ari to
+  Applications, then right-click it and choose **Open** (on macOS 15 and later, open it
+  once, then use **System Settings → Privacy & Security → Open Anyway**). Or clear the
+  download flag in Terminal: `xattr -cr /Applications/Ari.app`. Ari can't update itself
+  on macOS: when a new version is out it links you to the release to download.
+- **Linux.** Prefer the `.deb` (`sudo apt install ./Ari-<version>.deb`). The AppImage
+  needs FUSE 2 (`sudo apt install libfuse2`, or `libfuse2t64` on Ubuntu 24.04), and on
+  Ubuntu 24.04 and later AppArmor's user-namespace restriction stops it from starting
+  its sandbox, which the `.deb` sets up for you.
+
+On Windows and Linux, Ari offers each new release and installs it when you restart.
+
+**Where your data lives.** Settings, sessions, worktrees Ari creates, and in-app browser
+data are in the app's profile folder:
+
+| System  | Profile folder                      |
+| ------- | ----------------------------------- |
+| Windows | `%APPDATA%\Ari`                     |
+| macOS   | `~/Library/Application Support/Ari` |
+| Linux   | `~/.config/Ari`                     |
+
+Warnings and errors are logged to `triage/logs.jsonl` inside it; that is what
+[Ari Triage](#ari-triage) reads and what `ari triage --export` packages.
+
+**Uninstalling.** On Windows use **Settings → Apps → Ari → Uninstall**; on macOS move
+`Ari.app` to the Trash; on Linux remove the `.deb` package with your package manager,
+or delete the AppImage.
+Uninstalling keeps your data. To remove it too, delete the profile folder above.
+
+**Privacy.** Ari has no telemetry or analytics SDK and needs no account. It talks to the
+network for what you use (your agents, the model endpoints you add, the phone
+connection) plus a few background checks: GitHub for Ari updates, models.dev for model
+lists, and the npm registry for agent CLI versions. Discord Rich Presence is **on by
+default**: with the Discord desktop app running it shows "Running N agents" or "Idle"
+and how long Ari has been open, nothing about your projects. Turn it off in
+**Settings → Notifications → Discord status**.
 
 ## Why Ari
 
@@ -54,7 +108,7 @@ bottleneck. Ari wraps the agents you already have in a real desktop environment:
 
 | Area       | What you get                                                                                                                                 |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agents     | Claude Code, Codex, OpenCode, Grok, Pi, Hermes: auto-detected; any OpenAI/Anthropic/Ollama-compatible endpoint via Ari Core                 |
+| Agents     | Claude Code, Codex, OpenCode, Grok, Pi, Hermes: auto-detected; any OpenAI/Anthropic/Ollama-compatible endpoint via Ari Core                  |
 | Terminals  | Full-page pane workspace: binary splits, draggable/keyboard dividers, agent-CLI launcher, per-pane scrollback that survives remounts         |
 | Sessions   | Event-sourced journals, realtime streaming deltas, session resume, edit-and-resend                                                           |
 | References | `@file` mentions with a ranked popup; drag files from the explorer or Changes list straight into the prompt                                  |
@@ -197,8 +251,10 @@ pnpm exec electron-builder --linux --x64     # AppImage + deb   (needs Linux)
 Native modules use the locked Node-API prebuilds; do not run `install-app-deps` or
 override the packaging configuration's disabled native rebuild.
 
-Bundles land in `dist/`. Code signing is scaffolded but optional: unsigned builds work;
-signing env vars (`CSC_LINK` / `CSC_KEY_PASSWORD`) are picked up automatically when set.
+Bundles land in `dist/`. Windows builds are unsigned unless signing env vars
+(`CSC_LINK` / `CSC_KEY_PASSWORD`) are set; macOS builds are ad-hoc signed and not
+notarized. Before a release, regenerate the bundled license notices with
+`node scripts/third-party-notices.mjs`.
 
 ## Architecture
 
@@ -211,7 +267,7 @@ A pnpm monorepo of small, strict packages:
 | `@ari/ui`        | Design system: tokens, primitives, motion                                       |
 | `@ari/providers` | Driver registry: ACP transports, CLI adapters, detection, model catalogs        |
 | `@ari/engine`    | Sessions, event-sourced journals, git service (diffs, checkpoints, worktrees)   |
-| `@ari/ari-core`  | The built-in harness: any OpenAI/Anthropic/Ollama endpoint becomes a full agent  |
+| `@ari/ari-core`  | The built-in harness: any OpenAI/Anthropic/Ollama endpoint becomes a full agent |
 | `apps/desktop`   | The Electron shell: sandboxed renderer, typed IPC, React UI                     |
 
 Design invariants worth knowing before you dig in:
@@ -254,4 +310,6 @@ style, and make sure `pnpm verify` is green before pushing.
 
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE). Ari ships third-party packages under their own licenses, listed in
+[`THIRD_PARTY_NOTICES.txt`](./THIRD_PARTY_NOTICES.txt) (also in the app's `resources`
+folder).

@@ -69,6 +69,28 @@ export function useAppUpdateToast(): void {
           activeVersion = frame.version
           downloading = false
           lastPercent = -1
+          if (frame.releaseUrl !== undefined) {
+            // This build cannot install updates itself: the release page has
+            // the installer, and app.update.download opens it.
+            show({
+              title: `Ari ${frame.version} is available`,
+              description: `You're on ${frame.currentVersion}. Download the new version from GitHub.`,
+              tone: 'info',
+              durationMs: 0,
+              action: {
+                label: 'Open release',
+                onClick: () => {
+                  void rpc
+                    .invoke('app.update.download')
+                    .then((result) => {
+                      if (!result.started) failDownload(result.reason)
+                    })
+                    .catch((cause: unknown) => failDownload(describe(cause)))
+                },
+              },
+            })
+            return
+          }
           show({
             title: `Ari ${frame.version} is available`,
             description: `You're on ${frame.currentVersion}.`,
@@ -115,7 +137,8 @@ export function useAppUpdateToast(): void {
           if (frame.percent === lastPercent) return
           lastPercent = frame.percent
           show({
-            title: activeVersion === null ? 'Downloading update…' : `Downloading Ari ${activeVersion}…`,
+            title:
+              activeVersion === null ? 'Downloading update…' : `Downloading Ari ${activeVersion}…`,
             description: `${frame.percent}%`,
             tone: 'info',
             durationMs: 0,
