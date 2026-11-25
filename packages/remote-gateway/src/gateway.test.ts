@@ -1801,3 +1801,70 @@ describe('remote gateway PWA hosting', () => {
     expect(response.headers.get('content-type')).toContain('application/json')
   })
 })
+
+describe('a phone on a slow link', () => {
+  it('answers a stream ping so a client can tell a live socket from a frozen one', async () => {
+    const gateway = await start(fakeHost())
+    const token = await paired(gateway, deviceKey())
+    const client = await RawWebSocket.open(gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${token}`],
+    })
+    client.send(JSON.stringify({ type: 'events.ping' }))
+    expect(JSON.parse(await client.nextMessage())).toEqual({ type: 'events.pong' })
+    client.close()
+  })
+
+  it('compresses a large reply for a client that accepts gzip, and not for one that does not', async () => {
+    const big = Array.from({ length: 400 }, (_, index) => ({
+      id: `s_${index}`,
+      title: 'A session title',
+    }))
+    const gateway = await start(fakeHost({ listSessions: async () => [], query: async () => big }))
+    const token = await paired(gateway, deviceKey())
+    const ask = (encoding: string): Promise<Response> =>
+      fetch(`${gateway.origin}/query`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: ALLOWED,
+          authorization: `Bearer ${token}`,
+          'accept-encoding': encoding,
+        },
+        body: JSON.stringify({ op: 'session.list' }),
+      })
+    const zipped = await ask('gzip, deflate, br')
+    expect(zipped.headers.get('content-encoding')).toBe('gzip')
+    expect(zipped.headers.get('vary')?.toLowerCase()).toContain('accept-encoding')
+    expect(((await zipped.json()) as { result: unknown[] }).result).toHaveLength(400)
+    const plain = await ask('identity')
+    expect(plain.headers.get('content-encoding')).toBeNull()
+    expect(((await plain.json()) as { result: unknown[] }).result).toHaveLength(400)
+  })
+
+  it('re-checks a session read with the cheap visibility probe, not a second full read', async () => {
+    const base = fakeHost()
+    const getSession = vi.fn((caller: RemoteCaller, sessionId: string) =>
+      base.getSession(caller, sessionId),
+    )
+    const sessionVisible = vi.fn(async () => true)
+    const gateway = await start(
+      fakeHost({
+        capabilities: () => [...OPERATIONS, 'session.get'],
+        getSession,
+        sessionVisible,
+        query: async () => ({ messages: [] }),
+      }),
+    )
+    const token = await paired(gateway, deviceKey())
+    const reply = await call(
+      gateway,
+      '/query',
+      { op: 'session.get', sessionId: 'sess_1', limit: 40 },
+      { token },
+    )
+    expect(reply.status).toBe(200)
+    expect(sessionVisible).toHaveBeenCalledTimes(1)
+    expect(getSession).not.toHaveBeenCalled()
+  })
+})

@@ -63,6 +63,10 @@ const DECISION_TIMEOUT_MS = 5 * 60 * 1000
 /** A cold tailnet is the usual reason the first attempt fails; three tries. */
 const CONNECT_ATTEMPTS = 3
 const CONNECT_RETRY_MS = 900
+/** Gateway tokens live twelve hours; a resume trusts one well inside that. */
+const RESUME_TOKEN_AGE_MS = 11 * 60 * 60 * 1000
+/** A resume that is followed by another drop this soon gets a full authorization. */
+const RESUME_COOLDOWN_MS = 30_000
 
 export class RemoteSession {
   readonly #client: GatewayClient
@@ -73,6 +77,8 @@ export class RemoteSession {
   readonly #decisionTimeoutMs: number
   #state: ConnectionState = 'unpaired'
   #token: string | null = null
+  #authorizedAt = 0
+  #resumedAt = 0
   /** Resolved project ids the desktop reported at the last authorization. */
   #projectIds: string[] = []
   #allProjects = false
@@ -154,13 +160,40 @@ export class RemoteSession {
    * user cannot fix. A failure that could be the tailnet still waking up is
    * retried a few times before the UI is told anything is wrong.
    */
-  async connect(signal?: AbortSignal): Promise<ConnectionState> {
+  async connect(
+    signal?: AbortSignal,
+    options: { resume?: boolean } = {},
+  ): Promise<ConnectionState> {
     signal = this.#operationSignal(signal)
     signal?.throwIfAborted()
     await this.#keyring.load()
     signal?.throwIfAborted()
     const deviceId = this.#keyring.deviceId
     if (deviceId === null) return this.#set('unpaired')
+
+    // Waking from the background, or a stream that went quiet, does not mean
+    // the token went bad. One unauthenticated round trip proves the path and
+    // the protocol; the challenge, signature and authorization that a cold
+    // start needs would add two more over a link that may be relayed. A token
+    // the desktop no longer knows is renewed by the first refused request, and
+    // a resume is not tried twice in a row, so a refused stream cannot loop.
+    const now = Date.now()
+    if (
+      options.resume === true &&
+      this.#token !== null &&
+      now - this.#authorizedAt < RESUME_TOKEN_AGE_MS &&
+      now - this.#resumedAt > RESUME_COOLDOWN_MS
+    ) {
+      this.#resumedAt = now
+      try {
+        const info = await this.#client.info()
+        signal?.throwIfAborted()
+        if (info.protocolVersion === CLIENT_PROTOCOL_VERSION) return this.#set('connected')
+      } catch (error) {
+        signal?.throwIfAborted()
+        if (!retryable(error)) return this.#set(stateForError(error))
+      }
+    }
 
     this.#set('connecting')
     for (let attempt = 0; ; attempt++) {
@@ -538,6 +571,7 @@ export class RemoteSession {
   #useToken(token: string, signal: AbortSignal): void {
     signal.throwIfAborted()
     this.#token = token
+    this.#authorizedAt = Date.now()
     this.#client.token = token
   }
 

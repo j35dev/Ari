@@ -55,7 +55,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
     { op: 'usage.allowance', label: 'See provider usage' },
   ].filter((item) => app.session?.supports(item.op))
   return (
-    <div className="h-full overflow-y-auto px-5 pb-8 pt-[max(0.5rem,env(safe-area-inset-top))]">
+    <div className="h-full overflow-y-auto px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))]">
       <header className="-ml-3 flex items-center gap-1">
         <button type="button" className="icon-button" aria-label="Back" onClick={onBack}>
           <ChevronLeft size={22} />

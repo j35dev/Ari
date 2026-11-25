@@ -362,7 +362,18 @@ export const remoteQuerySchema = z.discriminatedUnion('op', [
   ...remoteDesktopQuerySchema.options,
   z.object({ op: z.literal('gateway.info') }),
   z.object({ op: z.literal('session.list') }),
-  z.object({ op: z.literal('session.get'), sessionId: sessionIdSchema }),
+  z.object({
+    op: z.literal('session.get'),
+    sessionId: sessionIdSchema,
+    /**
+     * The newest `limit` messages only, so a phone on a slow link opens a long
+     * session without downloading all of it. Absent returns every message, as
+     * desktops before paging did.
+     */
+    limit: z.number().int().min(1).max(500).optional(),
+    /** Page backwards: messages strictly before this message id. */
+    before: z.string().min(1).max(256).optional(),
+  }),
   z
     .object({
       op: z.literal('attention.list'),
@@ -934,8 +945,18 @@ export const remoteSessionResultSchema = z.object({
   pendingInputs: z.array(remoteInputSchema),
   tasks: z.array(remoteChildTaskSchema).optional(),
   parent: z.object({ id: z.string(), title: z.string() }).nullable().optional(),
+  /** How many messages precede `messages` when the request asked for a page. */
+  earlier: z.number().int().nonnegative().optional(),
 })
 export type RemoteSessionResult = z.infer<typeof remoteSessionResultSchema>
+
+/**
+ * A `session.list` row as a remote client receives it. `live` is present on a
+ * running session and says whether a turn is actually executing on the
+ * desktop: `false` means the journal still says running but nothing is, a
+ * turn orphaned by a crashed provider, which must not read as working.
+ */
+export type RemoteSessionSummary = z.infer<typeof sessionSummarySchema> & { live?: boolean }
 
 /** Normal metadata without replaying transcript or exposing native provider identifiers. */
 export const remoteDesktopSessionResultSchema = remoteSessionResultSchema.omit({ messages: true }).extend({
@@ -965,6 +986,13 @@ export const remoteServerMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('events.desync'), sessionId: sessionIdSchema, reason: z.string() }),
   z.object({ type: z.literal('error'), error: remoteErrorSchema }),
 ])
+
+/**
+ * The answer to `events.ping`: proof the stream is alive end to end. Kept out
+ * of the frame union on purpose; it carries no session data, and a client
+ * that never pings never sees one.
+ */
+export const REMOTE_PONG = { type: 'events.pong' } as const
 export type RemoteServerMessage = z.infer<typeof remoteServerMessageSchema>
 
 export const remoteClientMessageSchema = z.discriminatedUnion('type', [
@@ -976,6 +1004,12 @@ export const remoteClientMessageSchema = z.discriminatedUnion('type', [
     fromSeq: z.number().int().nonnegative().optional(),
   }),
   z.object({ type: z.literal('events.unsubscribe'), sessionId: sessionIdSchema }),
+  /**
+   * A browser cannot see transport pings, so a phone asks for an answer it can
+   * see. A socket that stops answering is dead even when the OS still calls it
+   * open, which is what iOS leaves behind after backgrounding a page.
+   */
+  z.object({ type: z.literal('events.ping') }),
   z.object({
     type: z.literal('events.ack'),
     sessionId: sessionIdSchema,

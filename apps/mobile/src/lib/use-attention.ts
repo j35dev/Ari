@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { RemoteAttention } from '@ari/contracts/remote'
 import { useApp } from './app-state'
 
@@ -13,6 +13,12 @@ export interface Attention {
 export function useAttention(): Attention {
   const app = useApp()
   const [state, setState] = useState<Attention>({ items: [], loading: true, failure: null })
+  // Asking the desktop costs it a read of every session, so ask again only
+  // when a status changed, not whenever a running session's timestamp moved.
+  const statuses = useMemo(
+    () => app.sessions.map((session) => `${session.id}:${session.status}`).join(','),
+    [app.sessions],
+  )
   useEffect(() => {
     const session = app.session
     if (session === null || !session.usable) return
@@ -55,6 +61,6 @@ export function useAttention(): Attention {
     return () => {
       cancelled = true
     }
-  }, [app.session, app.sessions, app.connection])
+  }, [app.session, statuses, app.connection, app.wake])
   return state
 }

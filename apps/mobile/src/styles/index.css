@@ -219,12 +219,24 @@
   inset-inline: 0;
   height: var(--ari-mobile-height, 100dvh);
   overflow: hidden;
+  /* A phone on its side puts the notch and the rounded corners at the sides. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 .mobile-composer {
+  /* Above the home indicator on iPhone and the gesture bar on Android. */
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
+/* With the keyboard up the bottom inset is covered by the keyboard itself. */
 html[data-keyboard='open'] .mobile-composer {
   padding-bottom: 0.5rem;
+}
+/* Anything pinned to the top edge clears the status bar and the notch. */
+.safe-top {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+.safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
 /* Sheets and the approval dock rise from the edge they are anchored to. */
 .sheet-rise {
