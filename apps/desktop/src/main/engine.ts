@@ -287,6 +287,31 @@ interface SteeredMessage {
 /** Guard seq before the dequeue append resolves: always later than any snapshot. */
 const PENDING_SEQ = Number.MAX_SAFE_INTEGER
 
+/** Thrown inside a turn's startup when Stop arrived before the adapter existed. */
+const STARTUP_STOPPED: unique symbol = Symbol('startup stopped')
+
+/** The value, or {@link STARTUP_STOPPED} as soon as the signal aborts. */
+function untilAborted<T>(
+  work: Promise<T>,
+  signal: AbortSignal,
+): Promise<T | typeof STARTUP_STOPPED> {
+  if (signal.aborted) return Promise.resolve(STARTUP_STOPPED)
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => resolve(STARTUP_STOPPED)
+    signal.addEventListener('abort', onAbort, { once: true })
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
 /**
  * The session engine: validates commands through the pure decider, persists
  * the decided events to journals, executes provider side effects, and
@@ -305,6 +330,10 @@ export class Engine {
   readonly #providerReleases = new Map<string, Promise<void>>()
   readonly #executingTurnIds = new Map<string, string>()
   readonly #capacityBlockedQueues = new Map<string, Set<string>>()
+  /** Turns still waiting on `driver.create`; Stop aborts them. */
+  readonly #startups = new Map<string, { turnId: string; controller: AbortController }>()
+  /** Adapters a stopped startup still has to dispose once creation returns. */
+  readonly #abandonedStartups = new Map<string, Set<Promise<void>>>()
   #closing = false
   #shutdown: Promise<void> | null = null
 
@@ -335,6 +364,7 @@ export class Engine {
       await disposed
       await closeRetained()
       await Promise.allSettled(this.#turnTasks.values())
+      await Promise.allSettled([...this.#abandonedStartups.values()].flatMap((set) => [...set]))
       // Providers completing startup during shutdown may retain a transport
       // in dispose(). The owner closes those after the final turn exits too.
       await closeRetained()
@@ -345,11 +375,12 @@ export class Engine {
   /** Waits for provider disposal, including interrupted startup, before reading worker files. */
   async quiesce(sessionId: string): Promise<void> {
     await this.#turnTasks.get(sessionId)
+    await Promise.allSettled(this.#abandonedStartups.get(sessionId) ?? [])
   }
 
   /** Includes providers still disposing after a durable settle. */
   hasLiveTurn(sessionId: string): boolean {
-    return this.#turnTasks.has(sessionId)
+    return this.#turnTasks.has(sessionId) || this.#abandonedStartups.has(sessionId)
   }
 
   /** A created adapter can now receive live coordination accepted during startup. */
@@ -564,6 +595,45 @@ export class Engine {
   async releaseBackgroundTasks(sessionId: string, detail: string): Promise<void> {
     if (this.#turnTasks.has(sessionId)) return
     await this.#endBackgroundTasks(sessionId, () => true, 'stopped', detail)
+  }
+
+  /**
+   * A startup Stop gave up on: the turn moves on now, and whatever the driver
+   * eventually returns is stopped and disposed. `quiesce` still waits for it.
+   */
+  #abandonStartup(
+    sessionId: string,
+    creating: Promise<ProviderAdapter>,
+    contextSeq: number,
+  ): void {
+    const pending = this.#abandonedStartups.get(sessionId) ?? new Set<Promise<void>>()
+    this.#abandonedStartups.set(sessionId, pending)
+    const late: Promise<void> = creating
+      .then(
+        async (adapter) => {
+          try {
+            adapter.interrupt()
+          } catch (error) {
+            log.warn('provider cancellation failed after a stopped startup', { error })
+          }
+          await adapter.dispose()
+          await this.#releaseProviderConnection(sessionId, contextSeq)
+        },
+        (error: unknown) =>
+          log.info('stopped provider startup failed', { sessionId, error: String(error) }),
+      )
+      .catch((error: unknown) =>
+        log.warn('stopped provider startup could not be disposed', {
+          sessionId,
+          error: String(error),
+        }),
+      )
+      .finally(() => {
+        pending.delete(late)
+        if (pending.size === 0 && this.#abandonedStartups.get(sessionId) === pending)
+          this.#abandonedStartups.delete(sessionId)
+      })
+    pending.add(late)
   }
 
   /** A new turn waits for shutdown outside the root's command chain. */
@@ -809,6 +879,8 @@ export class Engine {
       )
 
     if (command.type === 'turn.interrupt') {
+      const startup = this.#startups.get(command.sessionId)
+      if (startup && startup.turnId === model.activeTurnId) startup.controller.abort()
       this.#activeTurns.get(command.sessionId)?.interrupt()
       this.#onFirstSettle(command.sessionId, null)
     }
@@ -1164,6 +1236,10 @@ export class Engine {
     /** Whether this turn's process was given the `ari` control CLI. */
     let hasControl: boolean
     let inboxMessageIds: string[] = []
+    // Stop during startup must not wait out a slow or wedged provider launch:
+    // the turn is already settled, and the next message queues behind this task.
+    const startup = { turnId, controller: new AbortController() }
+    this.#startups.set(session.id, startup)
     try {
       if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
         return
@@ -1213,7 +1289,8 @@ export class Engine {
       const resolvedAttachments =
         attachments.length > 0 ? await this.#resolveAttachments(attachments) : []
       await waitForProviderRelease()
-      adapter = await driver.create({
+      if (startup.controller.signal.aborted) throw STARTUP_STOPPED
+      const creating = driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
         workspacePath,
@@ -1228,6 +1305,12 @@ export class Engine {
         ...(resolvedAttachments.length > 0 ? { attachments: resolvedAttachments } : {}),
         ...(slash.kind === 'rpc' ? { command: slash.invocation } : {}),
       })
+      const created = await untilAborted(creating, startup.controller.signal)
+      if (created === STARTUP_STOPPED) {
+        this.#abandonStartup(session.id, creating, contextSeq)
+        throw STARTUP_STOPPED
+      }
+      adapter = created
       // Adapter creation accepted the prompt. Consumption still requires the recipient's ack.
       for (const id of inboxMessageIds) {
         const message = (await this.#deps.store.load(session.id)).inbox?.[id]
@@ -1252,6 +1335,8 @@ export class Engine {
             message: { ...message, status: 'uncertain', turnId },
           }).catch(() => undefined)
       }
+      // Stopped while starting: the interrupt already settled the turn.
+      if (e === STARTUP_STOPPED) return
       // A failed reuse can have closed the process that owned earlier tasks.
       // There is no adapter stream left to publish their terminal state.
       await this.#endBackgroundTasks(
@@ -1267,6 +1352,8 @@ export class Engine {
       )
       await this.#settle(session.id, turnId, 'error', String(e))
       return
+    } finally {
+      if (this.#startups.get(session.id) === startup) this.#startups.delete(session.id)
     }
 
     // A reused native process still owns its earlier tasks. Other transports

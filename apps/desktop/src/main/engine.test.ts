@@ -1512,6 +1512,59 @@ describe('engine end-to-end with scripted driver', () => {
     expect(model.status).toBe('idle')
   }, 10000)
 
+  it('stops a turn whose provider is still starting and runs the next one at once', async () => {
+    let finishStartup!: () => void
+    const startupGate = new Promise<void>((resolve) => {
+      finishStartup = resolve
+    })
+    const wedged = { interrupt: vi.fn(), dispose: vi.fn(async () => undefined) }
+    const prompts: string[] = []
+    const registry = new DriverRegistry()
+    registry.register({
+      kind: 'claude',
+      create: async (session: AdapterSession) => {
+        prompts.push(session.prompt)
+        if (prompts.length === 1) {
+          // A launch that hangs, as a wedged ACP handshake does.
+          await startupGate
+          return {
+            start: () => (async function* (): AsyncGenerator<AgentEvent> {})(),
+            ...wedged,
+          }
+        }
+        return scriptedDriver({ echo: 'second reply' }).create(session)
+      },
+    })
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_wedged_startup'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'first' } as Command)
+    await expect.poll(() => prompts.length).toBe(1)
+
+    expect((await engine.dispatch({ type: 'turn.interrupt', sessionId })).accepted).toBe(true)
+    expect((await store.load(sessionId)).activeTurnId).toBeNull()
+
+    // The next message must not queue behind the hung launch.
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'second' } as Command)
+    await expect.poll(() => prompts.length).toBe(2)
+    await expect
+      .poll(async () => (await store.load(sessionId)).lastTurn?.stopReason)
+      .toBe('completed')
+    expect(engine.hasLiveTurn(sessionId)).toBe(true)
+
+    // The late adapter is stopped and disposed once its launch finally returns.
+    finishStartup()
+    await engine.quiesce(sessionId)
+    expect(wedged.interrupt).toHaveBeenCalledOnce()
+    expect(wedged.dispose).toHaveBeenCalledOnce()
+    expect(engine.hasLiveTurn(sessionId)).toBe(false)
+  }, 10000)
+
   it('settles the turn as error when a provider emits an error event', async () => {
     // Auth-failure shape: CLI exits 0 but emits an error mid-stream (the
     // real-world `Not logged in · Please run /login` claude failure).
