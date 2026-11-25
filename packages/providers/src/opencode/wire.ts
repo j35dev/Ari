@@ -99,7 +99,16 @@ export interface OpencodeWire {
   readonly eventPath: string
   /** Normalizes one SSE `data:` payload. Total: unknown shapes map to []. */
   normalize(raw: unknown): OcEvent[]
-  createSession(directory: string, mode: PermissionMode): Promise<string>
+  /**
+   * Creates a session carrying the rules for `mode`. `rulesApplied` is false
+   * when the server took the session but not its rules (OpenCode 2 previews
+   * predate per-session rules), so its tools run under the agent's defaults.
+   */
+  createSession(
+    directory: string,
+    mode: PermissionMode,
+  ): Promise<{ id: string; rulesApplied: boolean }>
+  deleteSession(sessionID: string, directory: string): Promise<void>
   sessionExists(sessionID: string, directory: string): Promise<boolean>
   setPermissions(sessionID: string, directory: string, mode: PermissionMode): Promise<void>
   /** Only OpenCode 2 runs shell tools in a per-session environment. */

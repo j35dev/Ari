@@ -234,14 +234,21 @@ export class WireV2 implements OpencodeWire {
     }))
   }
 
-  async createSession(directory: string, mode: PermissionMode): Promise<string> {
+  async createSession(directory: string, mode: PermissionMode) {
     const created = await this.http.request<unknown>('POST', '/api/session', {
       directory,
       body: { location: { directory }, permissions: this.#rules(mode) },
     })
-    const id = str(asRecord(asRecord(created)?.['data'])?.['id'])
+    const info = asRecord(asRecord(created)?.['data'])
+    const id = str(info?.['id'])
     if (!id) throw new Error('OpenCode did not return a session id.')
-    return id
+    // A server that stored the rules reports them back on the session; one that
+    // predates session rules drops the field without complaint.
+    return { id, rulesApplied: Array.isArray(info?.['permissions']) }
+  }
+
+  async deleteSession(sessionID: string, directory: string): Promise<void> {
+    await this.http.request('DELETE', `/api/session/${encodeId(sessionID)}`, { directory })
   }
 
   async sessionExists(sessionID: string, directory: string): Promise<boolean> {
