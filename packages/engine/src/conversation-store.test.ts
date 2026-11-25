@@ -401,6 +401,60 @@ describe('SQLite conversations', () => {
     ).toBe('after '.repeat(100))
   })
 
+  it('hydrates a long run of control events in a few frames instead of one per saved row', async () => {
+    const store = createStore()
+    await createTurn(store)
+    for (let n = 0; n < 500; n++)
+      await store.append(session.id, {
+        type: 'child.session.acknowledged',
+        childSessionId: `child${n}`,
+        turnId: `turn${n}`,
+        via: 'delivered',
+      })
+    const chunks: JournalEvent[][] = []
+    for await (const chunk of store.readConversationChunks(session.id)) chunks.push(chunk)
+    expect(chunks.flat()).toHaveLength(503)
+    expect(chunks.length).toBeLessThanOrEqual(2)
+  })
+
+  it('skips acknowledgments repeated by the old delivery loop when hydrating, but not in raw replay', async () => {
+    const first = createStore()
+    await createTurn(first)
+    const ack = (turnId: string) =>
+      first.append(session.id, {
+        type: 'child.session.acknowledged',
+        childSessionId: 'child',
+        turnId,
+        via: 'delivered',
+      })
+    for (const turnId of ['a', 'b', 'a', 'b', 'a', 'b']) await ack(turnId)
+    await first.close()
+    // A database written before the repair existed.
+    const raw = new DatabaseSync(join(rootDir, 'conversations.sqlite'))
+    raw.exec('DROP INDEX conversation_history_order')
+    raw.exec('ALTER TABLE conversation_history DROP COLUMN redundant')
+    raw.close()
+
+    const store = createStore()
+    const hydrated: JournalEvent[] = []
+    for await (const chunk of store.readConversationChunks(session.id)) hydrated.push(...chunk)
+    expect(hydrated.map((event) => event.seq)).toEqual([0, 1, 2, 3, 4])
+    const replay = (await (await store.openJournal(session.id)).readAll()).flatMap((entry) =>
+      entry.kind === 'value' ? [entry.value.seq] : [],
+    )
+    expect(replay).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+    // New events keep flowing after the repair.
+    await store.append(session.id, {
+      type: 'turn.settled',
+      turnId: 'turn1',
+      stopReason: 'completed',
+      errorMessage: null,
+    })
+    const after: JournalEvent[] = []
+    for await (const chunk of store.readConversationChunks(session.id)) after.push(...chunk)
+    expect(after.at(-1)?.seq).toBe(9)
+  })
+
   it('destroys SQLite state and legacy data without resurrecting a migrated session', async () => {
     const legacy = createStore('jsonl')
     await createTurn(legacy)
