@@ -78,7 +78,10 @@ it.each(['returned', 'thrown'] as const)(
       .isolate(root, repo, 'uncertain-child', 'Worker')
       .catch((e: unknown) => e)
     const path = join(manager.rootDir, root.projectId, 'uncertain-child')
-    const [, , branch, , baseCommit] = add.mock.calls[0]!
+    const [, , branch, , start] = add.mock.calls[0]!
+    // The branch starts at the real commit, never at Ari's snapshot.
+    expect(start).toBe(git(repo, 'rev-parse', 'HEAD'))
+    const baseCommit = git(repo, 'rev-parse', 'refs/ari/orchestration/uncertain-child/base')
     expect(outcome).toMatchObject({
       code: 'uncertain_outcome',
       details: {
@@ -103,6 +106,52 @@ it.each(['returned', 'thrown'] as const)(
     expect(add).toHaveBeenCalledTimes(1)
   },
 )
+
+it('starts the session branch at HEAD and brings the parent unsaved files as uncommitted changes', async () => {
+  await writeFile(join(repo, 'old.txt'), 'old\n')
+  git(repo, 'add', 'old.txt')
+  git(repo, 'commit', '-qm', 'old file')
+  const head = git(repo, 'rev-parse', 'HEAD')
+  await writeFile(join(repo, 'file.txt'), 'parent edit\n')
+  await writeFile(join(repo, 'draft.txt'), 'draft\n')
+  await rm(join(repo, 'old.txt'))
+  await writeFile(join(repo, 'local.ignored'), 'private\n')
+
+  const workspace = await manager.isolate(root, repo, 'carry-child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  expect(git(workspace.path, 'rev-parse', 'HEAD')).toBe(head)
+  // Unstaged: the index stays at HEAD.
+  expect(git(workspace.path, 'diff', '--cached', '--name-only')).toBe('')
+  expect(
+    git(workspace.path, 'status', '--porcelain', '--untracked-files=all')
+      .split('\n')
+      .map((line) => line.trim()),
+  ).toEqual(['M file.txt', 'D old.txt', '?? draft.txt'])
+  expect(await readFile(join(workspace.path, 'file.txt'), 'utf8')).toBe('parent edit\n')
+  await expect(fs.stat(join(workspace.path, 'local.ignored'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  })
+
+  // The result still compares against the snapshot: only the agent's work shows.
+  const child = { ...root, id: 'carry-child', parentSessionId: root.id, workspace }
+  await writeFile(join(workspace.path, 'agent.txt'), 'agent\n')
+  const diff = (await manager.diff(child, false)) as {
+    currentSnapshotCommit: string
+    files: { path: string }[]
+  }
+  expect(diff.files.map((file) => file.path)).toEqual(['agent.txt'])
+  expect(await manager.integrate(root, repo, child, diff.currentSnapshotCommit)).toMatchObject({
+    status: 'integrated',
+    files: ['agent.txt'],
+  })
+
+  // Merging the agent's commits never brings Ari's snapshot into history.
+  git(workspace.path, 'add', '-A')
+  git(workspace.path, 'commit', '-qm', 'agent work')
+  const authors = git(repo, 'log', '--format=%an %s', workspace.branch)
+  expect(authors).not.toContain('Ari')
+  expect(authors).not.toContain('snapshot')
+}, 30_000)
 
 it('rejects invalid frozen bases before attempting a worktree', async () => {
   const add = vi.spyOn(manager.git, 'addWorktree')
@@ -423,6 +472,10 @@ it('keeps committed and uncommitted work on the session branch when a session is
   expect(git(repo, 'log', '-1', '--format=%s', workspace.branch)).toBe(
     'Saved by Ari when the session was deleted',
   )
+  // The user's own identity: this commit is theirs to merge.
+  expect(git(repo, 'log', '-1', '--format=%an <%ae>|%cn <%ce>', workspace.branch)).toBe(
+    'Test <test@example.com>|Test <test@example.com>',
+  )
   expect(git(repo, 'log', '-1', '--format=%s', `${workspace.branch}~1`)).toBe('agent commit')
   expect(git(repo, 'show', `${workspace.branch}:file.txt`)).toBe('edited')
   expect(git(repo, 'show', `${workspace.branch}:untracked.txt`)).toBe('untracked')
@@ -433,6 +486,22 @@ it('keeps committed and uncommitted work on the session branch when a session is
   const saved = git(repo, 'rev-parse', workspace.branch)
   await manager.release('kept-child')
   expect(git(repo, 'rev-parse', workspace.branch)).toBe(saved)
+}, 30_000)
+
+it('saves deleted session work as Ari only when the repository has no identity', async () => {
+  const workspace = await manager.isolate(root, repo, 'anonymous-child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  git(repo, 'config', '--unset', 'user.name')
+  git(repo, 'config', '--unset', 'user.email')
+  vi.stubEnv('GIT_CONFIG_GLOBAL', join(dir, 'no-global-config'))
+  vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1')
+  try {
+    await writeFile(join(workspace.path, 'unsaved.txt'), 'unsaved\n')
+    await manager.release('anonymous-child')
+  } finally {
+    vi.unstubAllEnvs()
+  }
+  expect(git(repo, 'log', '-1', '--format=%an <%ae>', workspace.branch)).toBe('Ari <ari@localhost>')
 }, 30_000)
 
 it('saves work from a detached session checkout to a session branch of its own', async () => {
