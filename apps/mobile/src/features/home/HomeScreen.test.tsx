@@ -68,7 +68,7 @@ describe('home', () => {
     render(<HomeScreen {...handlers} />)
     const needsYou = await screen.findByRole('region', { name: 'Needs you' })
     expect(within(needsYou).getByText('Wants to use Bash')).toBeTruthy()
-    expect(within(shelf('Working')).getByText('Refactor shell')).toBeTruthy()
+    expect(within(shelf('Running')).getByText('Refactor shell')).toBeTruthy()
     expect(within(shelf('Recent')).getByText('Landing page')).toBeTruthy()
     expect(screen.queryByText('Old spike')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open Fix pairing' }))
@@ -176,15 +176,40 @@ describe('home', () => {
         sessionId: 'Landing page',
       }),
     )
-    expect(app.refresh).toHaveBeenCalledTimes(3)
+    // Once on arrival, then once after each action.
+    expect(app.refresh).toHaveBeenCalledTimes(4)
   })
 
   it('refreshes when the list is pulled down from its top', () => {
     render(<HomeScreen {...handlers} />)
+    expect(app.refresh).toHaveBeenCalledOnce()
     const list = screen.getByTestId('home-scroll')
     fireEvent.touchStart(list, { touches: [{ clientY: 10 }] })
     fireEvent.touchMove(list, { touches: [{ clientY: 210 }] })
     fireEvent.touchEnd(list)
-    expect(app.refresh).toHaveBeenCalledOnce()
+    expect(app.refresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows a dead turn as not responding and says what a running agent is doing', () => {
+    app.sessions = [
+      summary('Orphaned', { status: 'running', live: false } as Partial<SessionSummary>),
+      summary('Busy', {
+        status: 'running',
+        live: true,
+        lastMessagePreview: 'Reading the gateway tests',
+      } as Partial<SessionSummary>),
+    ]
+    app.session.query.mockResolvedValue({ items: [], nextCursor: null })
+    render(<HomeScreen {...handlers} />)
+    expect(within(shelf('Running')).getByText('Reading the gateway tests')).toBeTruthy()
+    expect(within(shelf('Running')).queryByText('Orphaned')).toBeNull()
+    expect(within(shelf('Recent')).getByText(/Not responding/)).toBeTruthy()
+  })
+
+  it('does not claim anything is working while the computer is out of reach', () => {
+    app.connection = 'reconnecting'
+    render(<HomeScreen {...handlers} />)
+    expect(within(shelf('Running')).getByText(/Was working/)).toBeTruthy()
+    expect(shelf('Running').querySelector('.status-pulse')).toBeNull()
   })
 })
