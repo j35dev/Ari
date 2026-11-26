@@ -58,10 +58,14 @@ describe('ModelSelector', () => {
       { kind, source: 'live', models: [{ id: 'native-model', label: 'Native model' }] },
     ])
     const { onChange } = setup(kind, null)
-    await userEvent.click(await screen.findByRole('button', { name: /model:/i }))
-    expect(
-      within(await screen.findByRole('presentation', { name: 'Providers' })).getByText(label),
-    ).toBeInTheDocument()
+    const trigger = await screen.findByRole('button', { name: /model:/i })
+    expect(trigger.querySelector('svg[fill="currentColor"] path')).not.toBeNull()
+    await userEvent.click(trigger)
+    const provider = within(
+      await screen.findByRole('presentation', { name: 'Providers' }),
+    ).getByText(label)
+    expect(provider).toBeInTheDocument()
+    expect(provider.closest('button')?.querySelector('svg path')).not.toBeNull()
     await userEvent.click(await screen.findByRole('option', { name: /Native model/ }))
     expect(onChange).toHaveBeenCalledWith({ driverKind: kind, modelId: 'native-model' })
   })

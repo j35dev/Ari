@@ -138,6 +138,15 @@ async function renderLoaded(props: Parameters<typeof ProvidersView>[0] = {}): Pr
 }
 
 describe('ProvidersView', () => {
+  it('shows the Antigravity vendor mark in the provider list and editor', async () => {
+    await renderLoaded()
+    const row = within(rowFor('Antigravity')).getByRole('button', { name: /^Antigravity,/ })
+    const path = row.querySelector('svg path')?.getAttribute('d')
+    expect(path).toBeTruthy()
+    const editor = await open('Antigravity')
+    expect(editor.querySelector('svg[fill="currentColor"] path')?.getAttribute('d')).toBe(path)
+  })
+
   beforeEach(() => {
     detections = DETECTIONS
     settings = structuredClone(defaultSettings)
