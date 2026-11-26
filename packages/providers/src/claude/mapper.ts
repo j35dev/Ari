@@ -114,12 +114,6 @@ export interface NativeLine {
   permissionMode?: string
   tool_name?: string
   elapsed_time_seconds?: number
-  rate_limit_info?: {
-    status?: string
-    rateLimitType?: string
-    utilization?: number
-    resetsAt?: number
-  }
 }
 
 function count(raw: Record<string, unknown> | undefined, key: string): number {
@@ -534,23 +528,6 @@ export class ClaudeMessageMapper {
         }
       }
       this.#streamed.clear()
-    }
-    if (native.type === 'rate_limit_event' && native.rate_limit_info) {
-      const info = native.rate_limit_info
-      if (info.status !== 'allowed') {
-        const utilization =
-          typeof info.utilization === 'number'
-            ? ` (${Math.round(info.utilization * 100)}% used)`
-            : ''
-        const reset =
-          typeof info.resetsAt === 'number'
-            ? `; resets ${new Date(info.resetsAt * 1000).toISOString()}`
-            : ''
-        events.push({
-          type: 'notice',
-          message: `Claude ${info.rateLimitType ?? 'usage'} limit: ${info.status ?? 'unknown'}${utilization}${reset}`,
-        })
-      }
     }
     if (native.type === 'system' && native.permissionMode) {
       if (native.permissionMode === 'plan')

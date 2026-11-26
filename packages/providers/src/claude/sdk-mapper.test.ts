@@ -240,26 +240,21 @@ describe('Claude SDK message mapping', () => {
     expect(mapper.map(message({ ...first, uuid: 'two' }))).toEqual([])
   })
 
-  it('surfaces rate limits and plan transitions as existing notices without failing the turn', () => {
+  it('keeps rate-limit warnings out of the transcript and still reports plan transitions', () => {
     const mapper = new ClaudeMessageMapper()
-    const events = mapper.map(
-      message({
-        type: 'rate_limit_event',
-        rate_limit_info: {
-          status: 'allowed_warning',
-          rateLimitType: 'five_hour',
-          utilization: 0.9,
-          resetsAt: 2_000_000_000,
-        },
-      }),
-    )
-    expect(events).toEqual([
-      {
-        type: 'notice',
-        message:
-          'Claude five_hour limit: allowed_warning (90% used); resets 2033-05-18T03:33:20.000Z',
-      },
-    ])
+    expect(
+      mapper.map(
+        message({
+          type: 'rate_limit_event',
+          rate_limit_info: {
+            status: 'allowed_warning',
+            rateLimitType: 'five_hour',
+            utilization: 0.9,
+            resetsAt: 2_000_000_000,
+          },
+        }),
+      ),
+    ).toEqual([])
     expect(
       mapper.map(message({ type: 'system', subtype: 'status', permissionMode: 'plan' })),
     ).toEqual([{ type: 'notice', message: 'Claude entered plan mode.' }])
