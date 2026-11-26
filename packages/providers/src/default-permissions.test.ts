@@ -7,7 +7,6 @@ import { buildCodexArgs, threadOptions } from './codex/codex-driver'
 import { buildGrokArgs } from './grok/grok-driver'
 import { buildHermesArgs } from './hermes/hermes-driver'
 import { buildOpencodeArgs } from './opencode/opencode-driver'
-import { buildPiArgs } from './pi/pi-driver'
 
 const session: AdapterSession = {
   sessionId: 'new-session',
@@ -52,12 +51,6 @@ describe('default permissions across provider harnesses', () => {
 
   it('launches legacy OpenCode with automatic tool approvals', () => {
     expect(buildOpencodeArgs(session)).toContain('--auto')
-  })
-
-  it('launches pi with all tools available', () => {
-    const args = buildPiArgs(session)
-    expect(args).not.toContain('--tools')
-    expect(args).not.toContain('--exclude-tools')
   })
 
   it.each([

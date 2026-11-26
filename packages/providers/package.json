@@ -47,6 +47,7 @@
     "./opencode/catalog": "./src/opencode/catalog.ts",
     "./opencode/version": "./src/opencode/version.ts",
     "./pi": "./src/pi/pi-driver.ts",
+    "./pi/catalog": "./src/pi/catalog.ts",
     "./pi/mapper": "./src/pi/mapper.ts",
     "./pi/sessions": "./src/pi/sessions.ts",
     "./qoder": "./src/qoder/qoder-driver.ts",

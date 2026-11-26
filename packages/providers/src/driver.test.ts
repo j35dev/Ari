@@ -23,6 +23,7 @@ vi.mock('./spawn-cli', async (importOriginal) => ({
     stdout: new PassThrough(),
     stderr: new PassThrough(),
     stdin: new PassThrough(),
+    exitCode: 0,
     killed: false,
     kill: () => true,
     on: () => undefined,
@@ -82,7 +83,6 @@ describe('provider capability discovery', () => {
   })
 
   it.each([
-    new PiDriver('/bin/pi'),
     new OpencodeDriver('/bin/opencode'),
     new GrokDriver('/bin/grok'),
     new HermesDriver('/bin/hermes'),
@@ -123,14 +123,27 @@ describe('provider capability discovery', () => {
   it('keeps undecided transports unknown and delegates known ACP fallback discovery', () => {
     const codex = new CodexDriver('/bin/codex')
     expect(getProviderCapabilities(codex)).toEqual(UNKNOWN_PROVIDER_CAPABILITIES)
-    const legacy = new PiDriver('/bin/pi')
-    const acpWithFallbackOnly = new AcpDriver('pi', null, legacy)
+    const legacy = new GrokDriver('/bin/grok')
+    const acpWithFallbackOnly = new AcpDriver('grok', null, legacy)
     expect(getProviderCapabilities(acpWithFallbackOnly)).toEqual(ONE_SHOT_PROVIDER_CAPABILITIES)
     const acpMayFallBack = new AcpDriver(
-      'pi',
+      'grok',
       { label: 'agent', command: 'fake', args: [] },
       legacy,
     )
     expect(getProviderCapabilities(acpMayFallBack)).toEqual(UNKNOWN_PROVIDER_CAPABILITIES)
+  })
+
+  it('reports live controls and file-based continuity for native Pi', async () => {
+    const driver = new PiDriver('/bin/pi')
+    const adapter = await driver.create(SESSION)
+    expect(getProviderCapabilities(adapter)).toMatchObject({
+      steering: 'live',
+      liveResponses: 'approvals-and-input',
+      processContinuity: 'turn-only',
+      terminalStatus: 'explicit',
+    })
+    expect(getProviderCapabilities(driver)).toEqual(getProviderCapabilities(adapter))
+    await adapter.dispose()
   })
 })

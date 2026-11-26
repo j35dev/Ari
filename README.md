@@ -98,7 +98,7 @@ that isn't installed is simply not offered, and a provider you turn off is never
 | **OpenCode**    | OpenCode server (`opencode serve`) | Classic 1.x and **OpenCode 2**; falls back to `opencode acp`, then the CLI. |
 | **Grok Build**  | Native ACP (`grok agent stdio`)    | Falls back to the CLI.                                                      |
 | **Qoder**       | Qoder Agent SDK                    | Falls back to its ACP mode (`--acp`). Uses your `qoder login`.              |
-| **Pi**          | ACP adapter (`pi-acp`)             | Falls back to the CLI.                                                      |
+| **Pi**          | Native RPC (`pi --mode rpc`)       | Uses your installed Pi, with streaming, approvals and session resume.       |
 | **Hermes**      | Native ACP (`hermes acp`)          | Falls back to the CLI.                                                      |
 | **Muse Code**   | Native ACP (`muse acp`)            | Uses your `muse login`; upstream ACP is experimental.                       |
 | **Antigravity** | Native ACP (`agy acp`)             | Gemini models. See the [integration and terms review](ANTIGRAVITY.md).      |
@@ -118,8 +118,15 @@ Antigravity runs your official `agy` CLI through its
 identity. Google currently limits third-party models to named ACP clients, so Ari offers Gemini
 models there and refuses unsupported selections.
 
-The ACP adapters for Claude, Codex and Pi run through `npx` at pinned versions. Each provider's
-settings page shows exactly how Ari connects to it.
+The ACP adapters for Claude and Codex run through `npx` at pinned versions. Each provider's
+settings page shows how Ari connects to it.
+
+Pi uses the installed CLI (Pi 1.1 or later) through its
+[native RPC interface](https://pi.dev/docs/latest/rpc). Existing Pi sessions resume from Pi's own
+session store. The model picker uses Pi's configured providers, including custom entries in
+`~/.pi/agent/models.json`. If an endpoint rejects a reasoning level, Ari displays its error in the
+transcript. Custom providers can map or hide individual levels with Pi's
+[`thinkingLevelMap`](https://pi.dev/docs/latest/models-configuration).
 
 </details>
 

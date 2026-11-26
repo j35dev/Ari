@@ -53,7 +53,7 @@ export interface Detection {
 }
 
 export interface ProviderTransport {
-  /** `acp` when turns go through the Agent Client Protocol, `cli` for one-shot runs. */
+  /** ACP, one-shot CLI, or a dedicated native SDK/RPC adapter. */
   mode: 'acp' | 'cli' | 'sdk'
   /** False when an installed runtime has no usable transport in Ari. */
   available?: boolean

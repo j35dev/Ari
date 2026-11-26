@@ -152,6 +152,7 @@ import {
 import { opencodeGeneration, readOpencodeCatalog } from '@ari/providers/opencode/catalog'
 import { GrokDriver } from '@ari/providers/grok'
 import { PiDriver } from '@ari/providers/pi'
+import { probePiCatalog } from '@ari/providers/pi/catalog'
 import { QoderDriver, qoderSessionPool } from '@ari/providers/qoder'
 import { HermesDriver } from '@ari/providers/hermes'
 import type { DetectEnvironment, Detection } from '@ari/providers/types'
@@ -253,22 +254,12 @@ async function probeOpencodeServerCatalog(
 }
 
 /**
- * Kinds whose ACP server is probed for the agent's own model list. Adapters
- * resolve through npx and are probed with `--no-install` so background
- * discovery never downloads; everything fails soft.
+ * Providers that can advertise their own model lists. ACP adapters that
+ * resolve through npx are probed with `--no-install`.
  */
-function acpProbeKinds(): DriverKind[] {
-  // Codex advertises its models over its own app-server protocol rather than
-  // ACP, so opting out of the ACP transport must not take its discovery down
-  // with it — probeAcpModels still skips the ACP fallback below.
+function modelProbeKinds(): DriverKind[] {
   if (process.env['ARI_ACP'] === '0')
-    return opencodeTransport() === 'sdk' ? ['codex', 'opencode'] : ['codex']
-  if (process.env['ARI_ACP_PROBE_ALL'] === '1') {
-    return ALL_CLI_KINDS
-  }
-  // Every kind with a real ACP transport: the probe reads the agent's own
-  // model list (session config options), which is what keeps the picker
-  // honest; the curated snapshot is only a first-paint fallback.
+    return opencodeTransport() === 'sdk' ? ['codex', 'opencode', 'pi'] : ['codex', 'pi']
   return ALL_CLI_KINDS
 }
 
@@ -280,19 +271,15 @@ function acpProbeKinds(): DriverKind[] {
  */
 const PROBE_HANDSHAKE_MS = 45_000
 
-/**
- * Opens a throwaway ACP session against the agent and reads its advertised
- * model list (session config options, category `model`) — models fetched
- * from the provider itself instead of a bundled list (M16).
- */
-async function probeAcpModels(
+/** Reads the agent's advertised models through its native or ACP transport. */
+async function probeProviderModels(
   kind: DriverKind,
 ): Promise<RpcResults['providers.models'][number]['models'] | null> {
   if (providerUpdatesRef?.unavailable(kind)) return null
-  return providerProbes.run(kind, () => readAcpModels(kind))
+  return providerProbes.run(kind, () => readProviderModels(kind))
 }
 
-async function readAcpModels(
+async function readProviderModels(
   kind: DriverKind,
 ): Promise<RpcResults['providers.models'][number]['models'] | null> {
   const environment = await resolveDetectionEnvironment()
@@ -302,6 +289,13 @@ async function readAcpModels(
   // it too: a shim found there is only runnable if the child can also resolve
   // the runtime it shells out to (GUI launches inherit a thin process PATH).
   const probeEnv = { ...processEnvWithPath(environment.pathEnv), ...providerEnvironment(kind) }
+  if (kind === 'pi') {
+    const catalog = await probePiCatalog(detection.binaryPath, homedir(), probeEnv)
+    setDynamicEfforts(kind, catalog.efforts)
+    setDynamicModes(kind, { currentId: null, options: [] })
+    setAgentDefaultModel(kind, catalog.defaultModelId)
+    return catalog.models
+  }
   if (kind === 'claude' && process.env['ARI_CLAUDE_TRANSPORT'] !== 'acp') {
     const catalog = await probeClaudeCatalog(detection.binaryPath, homedir(), probeEnv)
     setDynamicEfforts(kind, catalog.efforts)
@@ -439,6 +433,23 @@ async function readEffortsForModel(
   const environment = await resolveDetectionEnvironment()
   const detection = await detectConfigured(kind, environment)
   if (!detection.binaryPath) return []
+  if (kind === 'pi') {
+    const catalog = await probePiCatalog(detection.binaryPath, homedir(), {
+      ...processEnvWithPath(environment.pathEnv),
+      ...providerEnvironment(kind),
+    })
+    const offered =
+      modelId && modelId !== 'default'
+        ? resolveOfferedModel(modelId, catalog.models)
+        : catalog.defaultModelId
+    if (offered === null) return []
+    return (catalog.models.find((model) => model.id === offered)?.efforts ?? []).map((option) => ({
+      ...option,
+      ...(offered === catalog.defaultModelId && option.id === catalog.efforts.currentId
+        ? { current: true }
+        : {}),
+    }))
+  }
   if (kind === 'claude' && process.env['ARI_CLAUDE_TRANSPORT'] !== 'acp') {
     const catalog = await probeClaudeCatalog(detection.binaryPath, homedir(), {
       ...processEnvWithPath(environment.pathEnv),
@@ -591,6 +602,20 @@ const providerAuth = new ProviderAuthState()
 const authProbeDeps: AuthProbeDeps = {
   detections: () => probeAllDetections(),
   connect: async (kind, binaryPath): Promise<AuthProbeConnection | null> => {
+    if (kind === 'pi') {
+      return {
+        terminalLogins: [],
+        newSession: async (cwd) => {
+          const environment = await resolveDetectionEnvironment()
+          const catalog = await probePiCatalog(binaryPath, cwd, {
+            ...processEnvWithPath(environment.pathEnv),
+            ...providerEnvironment(kind),
+          })
+          if (catalog.defaultModelId === null) throw new Error('Pi has no active model.')
+        },
+        shutdown: () => Promise.resolve(),
+      }
+    }
     if (kind === 'claude' && process.env['ARI_CLAUDE_TRANSPORT'] !== 'acp') {
       const logins: AcpTerminalLogin[] = [
         {
@@ -1071,7 +1096,7 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
     { kind: 'codex', make: (bin) => new CodexDriver(bin) },
     { kind: 'opencode', make: (bin) => new OpencodeDriver(bin) },
     { kind: 'grok', make: (bin) => new GrokDriver(bin) },
-    { kind: 'pi', make: (bin) => new PiDriver(bin) },
+    { kind: 'pi' },
     { kind: 'hermes', make: (bin) => new HermesDriver(bin) },
     { kind: 'qoder' },
     { kind: 'muse' },
@@ -1124,6 +1149,29 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
           }
           if (candidate.kind === 'opencode') {
             registry.register(opencodeDriver(detection.binaryPath, detection.version))
+            return
+          }
+          if (candidate.kind === 'pi') {
+            registry.register(
+              new PiDriver(detection.binaryPath, {
+                mcpServers: (session) => {
+                  const handle = browserMcpHandle
+                  if (!handle) return {}
+                  return {
+                    'ari-browser': {
+                      url: handle.url,
+                      headers: { Authorization: `Bearer ${handle.tokenFor(session.sessionId)}` },
+                      exposure: 'direct',
+                    },
+                  }
+                },
+              }),
+            )
+            log.info('driver registered', {
+              kind: 'pi',
+              version: detection.version,
+              transport: 'pi-native-rpc',
+            })
             return
           }
           const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
@@ -1454,8 +1502,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const catalogService = new CatalogService({
     cachePath: join(app.getPath('userData'), 'model-catalog.json'),
     liveCachePath: join(app.getPath('userData'), 'agent-catalogs.json'),
-    probeModels: (kind) => probeAcpModels(kind),
-    probeKinds: acpProbeKinds(),
+    probeModels: probeProviderModels,
+    probeKinds: modelProbeKinds(),
     // Shares the 30 s detection cache, so this adds no `--version` spawns of its own.
     cliVersion: async (kind) =>
       (await rawDetections()).find((detection) => detection.kind === kind)?.version ?? null,
@@ -1495,7 +1543,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
     probe: async (kind, modelId) => {
       if (kind === 'codex') {
-        const models = await probeAcpModels(kind)
+        const models = await probeProviderModels(kind)
         const model = models?.find(
           (entry) => entry.id === modelId || (modelId != null && entry.aliases?.includes(modelId)),
         )

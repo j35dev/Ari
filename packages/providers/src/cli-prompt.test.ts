@@ -12,7 +12,6 @@ import { ClaudeCliDriver as ClaudeDriver } from './claude/cli-driver'
 import { CodexDriver } from './codex/codex-driver'
 import { GrokDriver } from './grok/grok-driver'
 import { OpencodeDriver } from './opencode/opencode-driver'
-import { PiDriver } from './pi/pi-driver'
 import { HermesDriver } from './hermes/hermes-driver'
 
 vi.mock('node:child_process', async (importOriginal) => ({
@@ -90,7 +89,6 @@ describe.each(['cmd', 'ps1', 'exe'])(
     it.each([
       ['codex', (binary: string) => new CodexDriver(binary, { probe: null })],
       ['opencode', (binary: string) => new OpencodeDriver(binary)],
-      ['pi', (binary: string) => new PiDriver(binary)],
       ['claude', (binary: string) => new ClaudeDriver(binary)],
     ] as const)(
       '%s delivers all prompt text on stdin, including resumed turns and attachments',
