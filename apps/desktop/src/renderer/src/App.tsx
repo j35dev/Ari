@@ -750,6 +750,8 @@ function Shell({
     },
     [refreshInventory],
   )
+  const archiveDeletion = useRef(false)
+  const [emptyingArchive, setEmptyingArchive] = useState(false)
 
   /** Shows `patch` on each session at once and confirms them one by one. */
   const patchSessions = useCallback(
@@ -2149,6 +2151,49 @@ function Shell({
                 onTogglePin={(id, pinned) => patchSessions([id], { pinned })}
                 onToggleArchive={(id, archived) => patchSessions([id], { archived })}
                 onArchiveMany={(ids) => patchSessions(ids, { archived: true })}
+                emptyingArchive={emptyingArchive}
+                onEmptyArchive={(ids) => {
+                  if (archiveDeletion.current) return
+                  const sessionIds = ids.filter((id) => navigation.scopes.get(id)?.kind === 'local')
+                  if (sessionIds.length === 0) return
+                  archiveDeletion.current = true
+                  setEmptyingArchive(true)
+                  void (async () => {
+                    try {
+                      const { deletedIds } = await rpc.invoke('session.emptyArchive', {
+                        sessionIds,
+                      })
+                      const deleted = new Set(deletedIds)
+                      setCreatedSessionKeys(
+                        (old) => new Set([...old].filter((id) => !deleted.has(id))),
+                      )
+                      for (const id of deleted) {
+                        forget(id)
+                        deleteSessionDraftIntent(id)
+                        deleteSessionDraftText(id)
+                        writeReviewDrafts(id, [])
+                      }
+                      const kept = sessionIds.length - deleted.size
+                      if (kept > 0)
+                        toast({
+                          tone: 'warning',
+                          title: `${kept} archived session${kept === 1 ? '' : 's'} kept`,
+                          description:
+                            'Some sessions could not be deleted or still have children outside the archive.',
+                        })
+                    } catch (error) {
+                      log.warn('empty archive failed', error)
+                      toast({ tone: 'danger', title: 'Couldn’t empty the archive' })
+                    } finally {
+                      await reloadSessions().catch((error: unknown) =>
+                        log.warn('rpc call failed', error),
+                      )
+                      archiveDeletion.current = false
+                      setEmptyingArchive(false)
+                      void refreshInventory()
+                    }
+                  })()
+                }}
                 onDeleteMany={(ids) => {
                   const dropped = new Set<string>()
                   for (const id of ids) {

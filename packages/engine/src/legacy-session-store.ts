@@ -937,6 +937,14 @@ export class LegacySessionStore {
     return this.#serial(sessionId, () => this.#destroy(sessionId))
   }
 
+  async destroyArchived(sessionId: string): Promise<boolean> {
+    return this.#serial(sessionId, async () => {
+      if (!(await this.#modelFor(sessionId)).session?.archived) return false
+      await this.#destroy(sessionId)
+      return true
+    })
+  }
+
   async #destroy(sessionId: string): Promise<void> {
     await this.#closeJournal(sessionId)
     this.#indexBehind.delete(sessionId)

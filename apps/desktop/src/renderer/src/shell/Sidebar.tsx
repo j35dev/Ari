@@ -934,16 +934,18 @@ function CollapsibleSessions({
   handlers,
   onRestoreAll,
   onEmptyArchive,
+  emptyingArchive,
 }: {
   label: string
   sessions: SessionSummary[]
   projectNameOf: (projectId: string) => string | null
   handlers: SessionRowHandlers
   onRestoreAll?: () => void
-  onEmptyArchive?: () => void
+  onEmptyArchive?: (ids: string[]) => void
+  emptyingArchive: boolean
 }) {
   const [open, setOpen] = useState(sessions.some((s) => s.id === handlers.activeSessionId))
-  const [confirmEmpty, setConfirmEmpty] = useState(false)
+  const [confirmEmpty, setConfirmEmpty] = useState<string[] | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const menu = useContextMenu()
 
@@ -966,6 +968,12 @@ function CollapsibleSessions({
   // active session sits inside, even though the shelf opens on its own.
   const shelfActive =
     handlers.activeSessionId != null && sessions.some((s) => s.id === handlers.activeSessionId)
+  const localIds = sessions
+    .filter(({ id }) => {
+      const host = handlers.hostOf?.(id)
+      return !host?.administrationReason && !host?.readOnly
+    })
+    .map(({ id }) => id)
 
   return (
     <div>
@@ -1004,6 +1012,7 @@ function CollapsibleSessions({
               id: 'restore-all',
               label: 'Restore all',
               icon: ArchiveRestore,
+              disabled: emptyingArchive,
               onSelect: () => onRestoreAll?.(),
             },
             {
@@ -1011,22 +1020,29 @@ function CollapsibleSessions({
               label: 'Empty archive',
               icon: Trash2,
               danger: true,
-              onSelect: () => setConfirmEmpty(true),
+              disabled: emptyingArchive || !onEmptyArchive || localIds.length === 0,
+              disabledReason:
+                localIds.length === 0 ? 'Only sessions on this device can be deleted.' : undefined,
+              onSelect: () => setConfirmEmpty(localIds),
             },
           ]}
         />
       ) : null}
-      {confirmEmpty ? (
+      {emptyingArchive ? (
+        <p role="status" className="mx-2 px-2.5 py-1 text-xs text-fg-muted">
+          Deleting archived sessions…
+        </p>
+      ) : confirmEmpty ? (
         <ProjectNotice
           tone="danger"
-          label={`Delete ${sessions.length} archived session${sessions.length === 1 ? '' : 's'}?`}
+          label={`Delete ${confirmEmpty.length} ${localIds.length < sessions.length ? 'local ' : ''}archived session${confirmEmpty.length === 1 ? '' : 's'}?`}
         >
           <button
             type="button"
             aria-label="Confirm empty archive"
             onClick={() => {
-              setConfirmEmpty(false)
-              onEmptyArchive?.()
+              setConfirmEmpty(null)
+              onEmptyArchive?.(confirmEmpty)
             }}
             className={DANGER_BUTTON}
           >
@@ -1035,7 +1051,7 @@ function CollapsibleSessions({
           <button
             type="button"
             aria-label="Keep archived sessions"
-            onClick={() => setConfirmEmpty(false)}
+            onClick={() => setConfirmEmpty(null)}
             className={rowAction}
           >
             <X size={13} aria-hidden />
@@ -1548,6 +1564,8 @@ type SessionsUnderProjectsProps = SessionRowHandlers &
     onOpenProject?: () => void
     /** Anchors the project picker the new session will run in, under the button. */
     onNewSession?: (anchor: MenuAnchor) => void
+    onEmptyArchive?: (ids: string[]) => void
+    emptyingArchive?: boolean
     searchInputRef?: Ref<HTMLInputElement>
     /** Controlled search query; owned by the shell so it survives this list unmounting. */
     searchQuery?: string
@@ -1580,6 +1598,8 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   onToggleArchive,
   onArchiveMany,
   onDeleteMany,
+  onEmptyArchive,
+  emptyingArchive = false,
   onOpenInSplit,
   activityOf,
   hostOf,
@@ -1834,10 +1854,11 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
           sessions={archived}
           projectNameOf={projectNameOf}
           handlers={handlers}
+          emptyingArchive={emptyingArchive}
           onRestoreAll={() => {
             for (const session of archived) onToggleArchive(session.id, false)
           }}
-          onEmptyArchive={() => deleteIds(archived.map((session) => session.id))}
+          onEmptyArchive={onEmptyArchive}
         />
       </div>
     ) : null
