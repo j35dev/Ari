@@ -39,7 +39,20 @@ async function shim(name: string): Promise<{ path: string; pid: () => Promise<nu
   const script = join(dir, `${name}.js`)
   await writeFile(
     script,
-    `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)\n`,
+    `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)
+if (${JSON.stringify(name)} === 'pi') {
+  const reply = (id, command, data) => console.log(JSON.stringify({type: 'response', id, command, success: true, data}))
+  console.log(JSON.stringify({type: 'extension_ui_request', method: 'notify', message: 'ARI_PI_BRIDGE_READY'}))
+  require('node:readline').createInterface({input: process.stdin}).on('line', line => {
+    const {id, type} = JSON.parse(line)
+    if (type === 'get_state') reply(id, type, {sessionId: 'pi-session', sessionFile: 'pi-session.jsonl'})
+    if (type === 'get_available_thinking_levels') reply(id, type, {levels: ['off']})
+    if (type === 'get_commands') reply(id, type, {commands: []})
+    if (type === 'prompt' || type === 'clear_queue') reply(id, type)
+    if (type === 'prompt') require('fs').writeFileSync(${JSON.stringify(pidFile + '.prompt')}, 'received')
+  })
+}
+`,
   )
   const path = join(dir, `${name}.cmd`)
   await writeFile(path, `@"${process.execPath}" "${script}" %*\r\n`)
@@ -76,6 +89,8 @@ describe.runIf(process.platform === 'win32')('CLIs behind an npm .cmd shim', () 
       })()
       const pid = await cli.pid()
       expect(alive(pid)).toBe(true)
+      if (name === 'pi')
+        await vi.waitFor(() => readFile(join(dir, 'pi.pid.prompt'), 'utf8'), { timeout: 5_000 })
 
       adapter.interrupt()
       await drained

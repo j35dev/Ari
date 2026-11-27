@@ -110,7 +110,12 @@ export function mapPiLine(line: string): AgentEvent[] {
   } catch (e) {
     return [{ type: 'error', message: `unparseable line: ${formatUnknownError(e)}`, rawJson: null }]
   }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+    return [{ type: 'error', message: 'Unexpected Pi stream record.', rawJson: null }]
+  return mapPiRecord(parsed)
+}
 
+function mapPiRecord(parsed: NativeLine): AgentEvent[] {
   switch (parsed.type) {
     case 'session': {
       const id = parsed.id
@@ -171,7 +176,7 @@ export function mapPiStream(lines: Iterable<string>): AgentEvent[] {
   return Array.from(lines).flatMap((line) => mapPiLine(line))
 }
 
-/** Stateful print-mode stream: preserve channel/block identity and reconcile message_end. */
+/** Preserve channel/block identity and reconcile the authoritative message_end. */
 export class PiMessageMapper {
   #session = 'session'
   #round = 0
@@ -187,6 +192,10 @@ export class PiMessageMapper {
     }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
       return [{ type: 'error', message: 'Unexpected Pi stream record.', rawJson: null }]
+    return this.map(parsed)
+  }
+
+  map(parsed: Record<string, unknown>): AgentEvent[] {
     const message = parsed.message as (Message & { timestamp?: number }) | undefined
     if (parsed.type === 'session' && typeof parsed.id === 'string') this.#session = parsed.id
     if (parsed.type === 'message_start' && message?.role === 'assistant') {
@@ -218,7 +227,7 @@ export class PiMessageMapper {
     if (parsed.type === 'message_end' && message?.role === 'assistant') {
       if (message.stopReason === 'error') {
         this.#active = false
-        return mapPiLine(line)
+        return mapAssistantMessage(message)
       }
       const signature =
         typeof message.timestamp === 'number'
@@ -262,6 +271,6 @@ export class PiMessageMapper {
           resultJson: JSON.stringify(parsed.partialResult),
         },
       ]
-    return mapPiLine(line)
+    return mapPiRecord(parsed)
   }
 }

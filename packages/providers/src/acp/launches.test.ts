@@ -262,12 +262,12 @@ describe('describeTransport', () => {
 describe('probeLaunch', () => {
   it('drops npx consent so --no-install cannot be overridden', () => {
     const probe = probeLaunch({
-      label: 'pi (ACP adapter pi-acp@0.0.33)',
+      label: 'codex ACP adapter',
       command: 'npx',
-      args: ['-y', 'pi-acp@0.0.33'],
+      args: ['-y', '@agentclientprotocol/codex-acp@1.7.0'],
       viaNpx: true,
     })
-    expect(probe.args).toEqual(['--no-install', 'pi-acp@0.0.33'])
+    expect(probe.args).toEqual(['--no-install', '@agentclientprotocol/codex-acp@1.7.0'])
     expect(probe.args).not.toContain('-y')
   })
 
@@ -279,7 +279,7 @@ describe('probeLaunch', () => {
 
 describe('acpAdapterSpec', () => {
   it('pins every npx adapter to an exact version', () => {
-    for (const kind of ['claude', 'codex', 'pi'] as const) {
+    for (const kind of ['claude', 'codex'] as const) {
       expect(acpAdapterSpec(kind, {})).toMatch(/@\d+\.\d+\.\d+$/)
     }
   })
@@ -296,12 +296,26 @@ describe('acpAdapterSpec', () => {
     expect(acpAdapterSpec('claude', { ARI_ACP_ADAPTER_CLAUDE: 'latest' })).toBe(
       '@agentclientprotocol/claude-agent-acp@latest',
     )
-    expect(acpAdapterSpec('pi', { ARI_ACP_ADAPTER_PI: 'my-fork/pi-acp' })).toBe('my-fork/pi-acp')
-    expect(acpAdapterSpec('pi', { ARI_ACP_ADAPTER_PI: 'pi-acp@0.0.34' })).toBe('pi-acp@0.0.34')
+    expect(acpAdapterSpec('codex', { ARI_ACP_ADAPTER_CODEX: 'my-fork/codex-acp' })).toBe(
+      'my-fork/codex-acp',
+    )
   })
 
   it('ignores a blank override rather than building a dangling spec', () => {
-    expect(acpAdapterSpec('pi', { ARI_ACP_ADAPTER_PI: '   ' })).toBe(acpAdapterSpec('pi', {}))
+    expect(acpAdapterSpec('codex', { ARI_ACP_ADAPTER_CODEX: '   ' })).toBe(
+      acpAdapterSpec('codex', {}),
+    )
+  })
+
+  it('keeps installed Pi on native RPC even with ACP environment overrides', () => {
+    const env = { ...ENV, vars: { ARI_ACP_ADAPTER_PI: 'latest' } }
+    expect(acpAdapterSpec('pi', env.vars)).toBeNull()
+    expect(resolveAcpLaunch('pi', { cliBinaryPath: '/usr/bin/pi' }, env)).toBeNull()
+    expect(describeTransport('pi', '/usr/bin/pi', env)).toMatchObject({
+      mode: 'sdk',
+      label: 'Pi native RPC',
+      available: true,
+    })
   })
 })
 
@@ -356,7 +370,7 @@ describe('an adapter npx has already installed', () => {
     const nodePath = join(dirname(npxPath), process.platform === 'win32' ? 'node.exe' : 'node')
     await writeFile(nodePath, '')
     const cache = await tempDir('ari-npm-cache-')
-    const script = await installInCache(cache, 'pi-acp', version, opts)
+    const script = await installInCache(cache, '@agentclientprotocol/codex-acp', version, opts)
     const env: DetectEnvironment = {
       ...ENV,
       pathEnv: dirname(npxPath),
@@ -366,9 +380,9 @@ describe('an adapter npx has already installed', () => {
   }
 
   it('runs it with node directly, skipping the seconds npx spends resolving it', async () => {
-    const version = acpAdapterSpec('pi')!.split('@').pop()!
+    const version = acpAdapterSpec('codex')!.split('@').pop()!
     const { nodePath, script, env } = await setup(version)
-    const launch = resolveAcpLaunch('pi', { cliBinaryPath: '/usr/bin/pi' }, env)
+    const launch = resolveAcpLaunch('codex', { cliBinaryPath: '/usr/bin/codex' }, env)
     expect(launch).toMatchObject({ command: nodePath, args: [script] })
     expect(launch?.viaNpx).toBeUndefined()
     expect(probeLaunch(launch!)).toEqual(launch)
@@ -376,14 +390,14 @@ describe('an adapter npx has already installed', () => {
 
   it('goes through npx when the cached copy is another version', async () => {
     const { npxPath, env } = await setup('0.0.1')
-    const launch = resolveAcpLaunch('pi', { cliBinaryPath: '/usr/bin/pi' }, env)
+    const launch = resolveAcpLaunch('codex', { cliBinaryPath: '/usr/bin/codex' }, env)
     expect(launch).toMatchObject({ command: npxPath, viaNpx: true })
   })
 
   it('goes through npx when the install was interrupted before npx wrote its manifest', async () => {
-    const version = acpAdapterSpec('pi')!.split('@').pop()!
+    const version = acpAdapterSpec('codex')!.split('@').pop()!
     const { npxPath, env } = await setup(version, { manifest: false })
-    const launch = resolveAcpLaunch('pi', { cliBinaryPath: '/usr/bin/pi' }, env)
+    const launch = resolveAcpLaunch('codex', { cliBinaryPath: '/usr/bin/codex' }, env)
     expect(launch).toMatchObject({ command: npxPath, viaNpx: true })
   })
 })

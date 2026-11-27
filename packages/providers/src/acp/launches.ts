@@ -12,7 +12,7 @@ const log = createLogger('providers:acp')
 
 /**
  * Per-kind ACP transports (M16). Agents with native ACP servers are launched
- * directly; Claude, Codex, and Pi ride their stdio adapters through npx.
+ * directly; Claude and Codex ride their stdio adapters through npx.
  * Ari never bundles adapter runtimes: the user's own CLI must be installed,
  * and every launch degrades gracefully — when {@link resolveAcpLaunch}
  * returns null the registry falls back to the legacy one-shot CLI drivers.
@@ -26,14 +26,12 @@ const log = createLogger('providers:acp')
 const NPM_ADAPTERS: Partial<Record<DriverKind, string>> = {
   claude: '@agentclientprotocol/claude-agent-acp',
   codex: '@agentclientprotocol/codex-acp',
-  pi: 'pi-acp',
 }
 
 /** Pinned adapter versions resolved through npx (see acpAdapterSpec). */
 const ACP_ADAPTER_VERSIONS: Partial<Record<DriverKind, string>> = {
   claude: '0.90.0',
   codex: '1.7.0',
-  pi: '0.0.33',
 }
 
 /**
@@ -292,6 +290,14 @@ export function describeTransport(
   cliBinaryPath: string,
   detectEnv: DetectEnvironment = realDetectEnvironment(),
 ): ProviderTransport {
+  if (kind === 'pi') {
+    return {
+      mode: 'sdk',
+      label: 'Pi native RPC',
+      available: true,
+      note: 'Runs the detected Pi CLI with streaming, approvals and persistent session resume.',
+    }
+  }
   if (
     kind === 'qoder' &&
     (detectEnv.vars?.['ARI_QODER_TRANSPORT'] ?? process.env['ARI_QODER_TRANSPORT']) !== 'acp'
