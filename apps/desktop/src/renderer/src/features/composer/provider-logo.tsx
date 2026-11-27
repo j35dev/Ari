@@ -3,13 +3,16 @@ import { agentMark } from './agent-mark'
 
 /**
  * Vendor logo paths, vendored from simple-icons (CC0) so no icon dependency
- * is needed — except three that simple-icons does not ship, each traced from
+ * is needed — except four that simple-icons does not ship, each taken from
  * the vendor's own art and normalized to the 24-unit grid the same way:
  * Grok from xAI's official grok.com favicon; Qoder from the QoderMark at
  * qoder.com (the vendor's own logo component, letterforms included so it
  * stays legible at chip size); and Muse from the Muse Code tab icon at
  * dev.meta.ai, which is Meta's wordmark (the Muse product's own mark is a 3D
- * object that does not read at 14px). Rendered monochrome via `currentColor`
+ * object that does not read at 14px). Antigravity uses the official one-color
+ * icon SVG from https://antigravity.google/press/, uniformly scaled and
+ * centered on this grid without changing its curves.
+ * Rendered monochrome via `currentColor`
  * — theme-aware, and brand hex stays out of component code per the token
  * rule. Kinds without official art fall back to the mono letter mark.
  * Logos remain trademarks of their respective owners.
@@ -22,6 +25,8 @@ const LOGO_PATHS: Partial<Record<DriverKind, string>> = {
   grok: 'M9.27 15.41L17.25 9.26C17.64 8.96 18.2 9.08 18.38 9.55C19.37 12.01 18.93 14.98 16.98 17.01C15.02 19.05 12.31 19.5 9.83 18.48L7.11 19.79C11 22.56 15.73 21.87 18.68 18.8C21.02 16.35 21.74 13.03 21.07 10.03L21.07 10.03C20.09 5.62 21.31 3.86 23.82 0.26C23.88 0.17 23.94 0.09 24 0L20.7 3.44V3.43L9.27 15.41M7.62 16.9C4.83 14.12 5.31 9.81 7.69 7.33C9.46 5.5 12.34 4.75 14.86 5.85L17.57 4.55C17.08 4.18 16.45 3.78 15.74 3.5C12.5 2.11 8.62 2.81 5.98 5.55C3.45 8.19 2.65 12.26 4.02 15.72C5.04 18.31 3.37 20.14 1.68 21.99C1.08 22.65 0.48 23.31 0 24L7.62 16.9',
   opencode: 'M22 24H2V0h20zM17 4.8H7v14.4h10z',
   pi: 'M0 0v24h6v-6h6v-6H6V6h6v6h6V0Zm18 12v12h6V12Z',
+  antigravity:
+    'M21.7513 22.5519C23.0912 23.5571 25.1012 22.8871 23.2586 21.0446C17.7315 15.6848 18.9038 0.9455 12.0367 0.9455C5.1695 0.9455 6.342 15.6848 0.8147 21.0446C-1.1952 23.0545 0.9822 23.5571 2.3221 22.5519C7.5144 19.0347 7.1794 12.8375 12.0367 12.8375C16.8939 12.8375 16.559 19.0347 21.7513 22.5519Z',
   hermes:
     'm21.818 4.516-1.05 4.148h2.175L24 4.516M19.41 14.04h2.17l1.04-4.08h-2.178m-2.41 9.523h2.154l1.056-4.147h-2.16m.193-5.377H5.55v.92l3.341 3.161h9.349m2.41-9.525H0v1.116l3.206 3.032H19.6m-8.372 7.58 3.43 3.24h2.205l1.05-4.147h-6.685',
   // Traced from the QoderMark at qoder.com; evenodd draws the counters.
