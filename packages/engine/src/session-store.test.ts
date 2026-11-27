@@ -1080,6 +1080,29 @@ describe('SessionStore', () => {
     await expect(store.destroy('sess_missing')).rejects.toMatchObject({ code: 'session_not_found' })
   })
 
+  it.each(['jsonl', 'sqlite'] as const)(
+    'checks the latest archive state before deletion (%s)',
+    async (storage) => {
+      const target = new SessionStore({ rootDir, storage })
+      try {
+        await target.append(session.id, {
+          type: 'session.created',
+          session: { ...session, archived: true },
+        })
+        const restore = target.append(session.id, { type: 'session.updated', archived: false })
+        const deletion = target.destroyArchived(session.id)
+        await restore
+        expect(await deletion).toBe(false)
+        expect(await target.exists(session.id)).toBe(true)
+        await target.append(session.id, { type: 'session.updated', archived: true })
+        expect(await target.destroyArchived(session.id)).toBe(true)
+        expect(await target.exists(session.id)).toBe(false)
+      } finally {
+        await target.close()
+      }
+    },
+  )
+
   // Two overlapping first opens used to build two journals for one session and
   // leak the loser's file handle until GC (Node's fd-close warning, #332).
   it('hands concurrent callers of a first open the same journal', async () => {

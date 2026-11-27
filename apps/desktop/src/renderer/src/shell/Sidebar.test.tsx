@@ -62,7 +62,8 @@ type Handlers = Partial<{
   onLocateProject: (id: string) => void
   onMoveProject: (id: string, delta: -1 | 1) => void
   activityOf: (id: string) => SessionActivity | undefined
-}>
+}> &
+  Pick<React.ComponentProps<typeof SessionsUnderProjects>, 'onEmptyArchive' | 'hostOf'>
 
 function renderSidebar(
   sessions: SessionSummary[],
@@ -976,16 +977,28 @@ describe('SessionsUnderProjects', () => {
     expect(onToggleArchive).not.toHaveBeenCalledWith('live', false)
   })
 
-  it('confirms before emptying the archive from the shelf menu', async () => {
-    const onDelete = vi.fn()
+  it('confirms only local archived sessions when a remote archive is also listed', async () => {
+    const onEmptyArchive = vi.fn()
     renderSidebar(
       [
         session('live', 1, 'proj-1'),
         { ...session('old-a', 2, 'proj-1'), archived: true },
         { ...session('old-b', 3, 'proj-2'), archived: true },
+        { ...session('remote', 4, 'proj-2'), archived: true },
       ],
       null,
-      { onDelete },
+      {
+        onEmptyArchive,
+        hostOf: (id) =>
+          id === 'remote'
+            ? {
+                name: 'Other PC',
+                status: 'connected',
+                readOnly: false,
+                administrationReason: 'Unavailable',
+              }
+            : undefined,
+      },
     )
     const user = userEvent.setup()
     await user.pointer({
@@ -993,11 +1006,10 @@ describe('SessionsUnderProjects', () => {
       target: screen.getByRole('button', { name: 'Archived' }),
     })
     await user.click(screen.getByRole('menuitem', { name: 'Empty archive' }))
-    expect(onDelete).not.toHaveBeenCalled()
+    expect(onEmptyArchive).not.toHaveBeenCalled()
+    expect(screen.getByText('Delete 2 local archived sessions?')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Confirm empty archive' }))
-    expect(onDelete).toHaveBeenCalledWith('old-a')
-    expect(onDelete).toHaveBeenCalledWith('old-b')
-    expect(onDelete).not.toHaveBeenCalledWith('live')
+    expect(onEmptyArchive).toHaveBeenCalledExactlyOnceWith(['old-a', 'old-b'])
   })
 
   it('shows working / paused / done marks on the live session and its project', () => {

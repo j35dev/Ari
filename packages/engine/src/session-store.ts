@@ -590,29 +590,38 @@ export class SessionStore extends LegacySessionStore {
 
   override async destroy(id: string): Promise<void> {
     if (!this.#database) return super.destroy(id)
-    await this.#serial(id, async () => {
-      if (!(await this.exists(id))) {
-        const error = new Error('Session not found.') as NodeJS.ErrnoException
-        error.code = 'session_not_found'
-        throw error
-      }
-      await this.#flush(id)
-      await this.#database!.delete(id)
-      const directory = join(this.#root, id)
-      if (
-        await stat(directory).catch((error) => {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-          throw error
-        })
-      )
-        await super.destroy(id)
-      this.#models.delete(id)
-      this.#history.delete(id)
-      this.#diagnostics.delete(id)
-      this.#failures.delete(id)
-      this.#notes.delete(id)
-      this.#lastPart.delete(id)
+    await this.#serial(id, () => this.#destroy(id))
+  }
+  override async destroyArchived(id: string): Promise<boolean> {
+    if (!this.#database) return super.destroyArchived(id)
+    return this.#serial(id, async () => {
+      if (!(await this.#model(id)).session?.archived) return false
+      await this.#destroy(id)
+      return true
     })
+  }
+  async #destroy(id: string): Promise<void> {
+    if (!(await this.exists(id))) {
+      const error = new Error('Session not found.') as NodeJS.ErrnoException
+      error.code = 'session_not_found'
+      throw error
+    }
+    await this.#flush(id)
+    await this.#database!.delete(id)
+    const directory = join(this.#root, id)
+    if (
+      await stat(directory).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+        throw error
+      })
+    )
+      await super.destroy(id)
+    this.#models.delete(id)
+    this.#history.delete(id)
+    this.#diagnostics.delete(id)
+    this.#failures.delete(id)
+    this.#notes.delete(id)
+    this.#lastPart.delete(id)
   }
   async close(): Promise<void> {
     if (this.#closing) return

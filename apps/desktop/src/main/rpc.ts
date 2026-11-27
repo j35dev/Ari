@@ -42,6 +42,7 @@ import { RemoteOrigins } from './remote-origins'
 import { TailscaleServe, type TailscaleState } from './tailscale'
 import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
+import { emptyArchive } from './empty-archive'
 import { startAgentRuntime, dropSessionResources, revokeArchivedSessions } from './agent-runtime'
 import { registerOrchestrationRpc } from './orchestration-runtime'
 import { AttachmentStore } from './attachments'
@@ -2766,43 +2767,71 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { at: await resumeSchedule.get(sessionId) }
   })
 
-  async function destroySession(sessionId: string) {
+  async function destroySessionRecord(id: string, archivedOnly = false): Promise<boolean> {
     const store = getSessionStore()
-    const ids = [...descendantIds(await store.listSessions(), sessionId), sessionId]
-    const parentId = (await store.load(sessionId)).session?.parentSessionId
-    for (const id of ids) {
-      const model = await store.load(id)
-      try {
-        if (model.activeTurnId || engine.hasLiveTurn(id)) {
-          await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
-          await engine.quiesce(id)
-        }
-      } catch (error) {
-        log.warn('session interrupt before deletion failed', {
-          sessionId: id,
-          error: String(error),
-        })
+    const model = await store.load(id)
+    if (archivedOnly && !model.session?.archived) return false
+    try {
+      if (model.activeTurnId || engine.hasLiveTurn(id)) {
+        await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
+        await engine.quiesce(id)
       }
-      try {
-        if (runtime) await runtime.revoke(id, 'destroy')
-        else await releaseProviderConnections(id)
-      } catch (error) {
-        log.warn('session pre-delete cleanup failed', { sessionId: id, error: String(error) })
-      }
-      await store.destroy(id)
-      await runtime?.release(id)
+    } catch (error) {
+      log.warn('session interrupt before deletion failed', {
+        sessionId: id,
+        error: String(error),
+      })
     }
+    try {
+      if (runtime) await runtime.revoke(id, 'destroy')
+      else await releaseProviderConnections(id)
+    } catch (error) {
+      log.warn('session pre-delete cleanup failed', { sessionId: id, error: String(error) })
+    }
+    if (archivedOnly) {
+      if (!(await store.destroyArchived(id))) return false
+    } else await store.destroy(id)
+    await runtime?.release(id)
+    return true
+  }
+
+  async function recordChildDestroyed(sessionId: string, parentId: string) {
     // The parent's transcript still holds this child's task card. Without the
     // event the CLI's own destroy journals, the card went on reading "Done"
     // and opened a session that no longer exists.
-    if (parentId && (await store.load(parentId)).session)
+    if (await getSessionStore().loadExisting(parentId))
       await engine.record(parentId, {
         type: 'child.session.destroyed',
         childSessionId: sessionId,
       })
+  }
+
+  async function destroySession(sessionId: string) {
+    const store = getSessionStore()
+    const ids = [...descendantIds(await store.listSessions(), sessionId), sessionId]
+    const parentId = (await store.load(sessionId)).session?.parentSessionId
+    for (const id of ids) await destroySessionRecord(id)
+    if (parentId) await recordChildDestroyed(sessionId, parentId)
     return { destroyed: true }
   }
   r.register('session.destroy', ({ sessionId }) => destroySession(sessionId))
+  r.register('session.emptyArchive', async ({ sessionIds }) => {
+    const rows = await getSessionStore().listSessions()
+    const deletedIds = await emptyArchive(rows, sessionIds, (row) =>
+      destroySessionRecord(row.id, true),
+    )
+    const deleted = new Set(deletedIds)
+    for (const { id, parentSessionId } of rows) {
+      if (!parentSessionId || !deleted.has(id) || deleted.has(parentSessionId)) continue
+      await recordChildDestroyed(id, parentSessionId).catch((error: unknown) =>
+        log.warn('could not record archived child deletion', {
+          sessionId: id,
+          error: String(error),
+        }),
+      )
+    }
+    return { deletedIds }
+  })
 
   // Sessions the user already has in pi, replayed into Ari's own journal. Read
   // only: pi's file stays where it is and stays resumable in pi afterwards.

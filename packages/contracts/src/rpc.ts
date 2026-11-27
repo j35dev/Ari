@@ -856,6 +856,7 @@ export const rpcParams = {
   'session.resume.cancel': z.object({ sessionId: z.string().min(1) }),
   'session.resume.get': z.object({ sessionId: z.string().min(1) }),
   'session.destroy': z.object({ sessionId: z.string().min(1) }),
+  'session.emptyArchive': z.object({ sessionIds: z.array(z.string().min(1)) }),
   /** Sessions another agent already has on disk; `projectId` scopes to one registered project. */
   'sessions.importable': z.object({ projectId: z.string().min(1).optional() }),
   'sessions.import': z.object({
@@ -1333,6 +1334,7 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults, Tr
   /** `at` is null when nothing is scheduled for the session. */
   'session.resume.get': { at: number | null }
   'session.destroy': { destroyed: boolean }
+  'session.emptyArchive': { deletedIds: string[] }
   /**
    * Sessions another agent has on disk and Ari could replay. `imported` is
    * derived from the Ari journals' own provider refs, so it cannot drift from
