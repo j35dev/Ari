@@ -158,6 +158,7 @@ import { QoderDriver, qoderSessionPool } from '@ari/providers/qoder'
 import { HermesDriver } from '@ari/providers/hermes'
 import type { DetectEnvironment, Detection } from '@ari/providers/types'
 import { resolveLocalHtml } from './local-html'
+import { openLocalMedia } from './local-media'
 import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
 import {
@@ -3328,6 +3329,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (failure) throw new Error(failure)
     return { opened: true }
   })
+
+  r.register('shell.openMediaFile', (params) =>
+    openLocalMedia(params.path, (path) => shell.openPath(path)),
+  )
 
   const walkCache = new WalkCache()
   r.register('files.index', async (params) => {

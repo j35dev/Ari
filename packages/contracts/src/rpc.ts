@@ -1059,6 +1059,8 @@ export const rpcParams = {
     path: z.string().min(1).max(4096),
     sessionId: z.string().min(1).optional(),
   }),
+  /** An absolute local audio or video link to open in the OS default player. */
+  'shell.openMediaFile': z.object({ path: z.string().min(1).max(4096) }),
   'files.index': z
     .object({ projectId: z.string().min(1).optional(), sessionId: z.string().min(1).optional() })
     .refine(
@@ -1614,6 +1616,7 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults, Tr
   'shell.revealPath': { revealed: boolean }
   'shell.openUrl': { opened: boolean }
   'shell.openHtmlFile': { opened: boolean }
+  'shell.openMediaFile': { opened: true } | { opened: false; reason: string }
   'files.index': { paths: string[] }
   'search.content': ContentSearchMatch[]
   'endpoints.list': {

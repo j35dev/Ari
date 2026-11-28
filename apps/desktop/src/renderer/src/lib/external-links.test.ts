@@ -73,7 +73,7 @@ describe('installExternalLinkInterceptor', () => {
   })
 })
 
-describe('HTML file links in a conversation', () => {
+describe('local file links in a conversation', () => {
   const invoke = vi.fn()
 
   beforeEach(() => {
@@ -119,6 +119,29 @@ describe('HTML file links in a conversation', () => {
       await vi.waitFor(() => expect(reasons).toEqual(['No file at /work/out/report.html']))
       // No session around the link: main is told only the path.
       expect(invoke).toHaveBeenCalledWith('shell.openHtmlFile', { path: 'out/report.html' })
+    } finally {
+      cleanup()
+      window.removeEventListener(LINK_FAILED_EVENT, listen)
+    }
+  })
+
+  it('delegates a Windows media target with spaces and reports a failed open', async () => {
+    const reason = 'The media file could not be found or accessed.'
+    invoke.mockResolvedValue({ opened: false, reason })
+    const reasons: unknown[] = []
+    const listen = (event: Event): void => {
+      reasons.push((event as CustomEvent).detail)
+    }
+    window.addEventListener(LINK_FAILED_EVENT, listen)
+    const cleanup = installExternalLinkInterceptor()
+    try {
+      document.body.innerHTML = renderMarkdown('[Play](<C:/Aria Demos/Expression Demo.wav>)')
+      expect(click().defaultPrevented).toBe(true)
+      expect(invoke).toHaveBeenCalledOnce()
+      expect(invoke).toHaveBeenCalledWith('shell.openMediaFile', {
+        path: 'C:/Aria%20Demos/Expression%20Demo.wav',
+      })
+      await vi.waitFor(() => expect(reasons).toEqual([reason]))
     } finally {
       cleanup()
       window.removeEventListener(LINK_FAILED_EVENT, listen)

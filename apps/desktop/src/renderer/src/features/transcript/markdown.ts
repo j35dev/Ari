@@ -5,6 +5,7 @@ import remarkBreaks from 'remark-breaks'
 import remarkRehype from 'remark-rehype'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeStringify from 'rehype-stringify'
+import { isLocalMediaPath, LOCAL_MEDIA_PREFIX } from '../../../../shared/local-media'
 
 /**
  * Markdown → safe HTML for transcript blocks. CommonMark + GFM (tables,
@@ -64,6 +65,17 @@ function isNetworkPath(text: string): boolean {
   })
 }
 
+/** Wrap absolute media targets before sanitizing hrefs, which removes drive-letter and file schemes. */
+function localMediaHref(target: string): string | null {
+  try {
+    const url = /^file:/i.test(target) ? new URL(target) : null
+    if (url?.hostname || !isLocalMediaPath(decodeURIComponent(url?.pathname ?? target))) return null
+    return LOCAL_MEDIA_PREFIX + encodeURIComponent(target)
+  } catch {
+    return null
+  }
+}
+
 interface HastNode {
   type: string
   tagName?: string
@@ -103,19 +115,28 @@ function textOf(node: HastNode & { value?: string }): string {
 }
 
 /**
- * Makes HTML files an agent names openable: a markdown link to one, and a
- * path written as inline code. Runs before the sanitizer, which would
- * otherwise strip a `file:` or `C:\…` target as an unknown scheme.
+ * Makes linked local HTML and media files openable before sanitizing hrefs.
+ * HTML paths written as inline code also become links.
  */
-function rehypeLocalHtmlLinks(): (tree: HastNode) => void {
+function rehypeLocalFileLinks(): (tree: HastNode) => void {
   const visit = (node: HastNode, insidePre: boolean): void => {
     node.children = node.children?.map((child) => {
       if (child.type !== 'element') return child
       if (child.tagName === 'a') {
         const href = child.properties?.['href']
-        const marker = typeof href === 'string' ? localHtmlHref(href) : null
-        if (marker !== null)
-          child.properties = { ...child.properties, href: marker, title: 'Open in your browser' }
+        if (typeof href !== 'string') return child
+        const media = localMediaHref(href)
+        if (media !== null) {
+          child.properties = {
+            ...child.properties,
+            href: media,
+            title: 'Open in your default player',
+          }
+        } else {
+          const html = localHtmlHref(href)
+          if (html !== null)
+            child.properties = { ...child.properties, href: html, title: 'Open in your browser' }
+        }
         return child
       }
       if (child.tagName === 'code' && !insidePre && node.tagName !== 'a') {
@@ -159,7 +180,7 @@ export const markdownProcessor = unified()
   .use(remarkBreaks)
   .use(remarkRehype)
   .use(rehypeDropLocalImages)
-  .use(rehypeLocalHtmlLinks)
+  .use(rehypeLocalFileLinks)
   .use(rehypeSanitize, {
     ...defaultSchema,
     protocols: { href: ['http', 'https', 'mailto'] },

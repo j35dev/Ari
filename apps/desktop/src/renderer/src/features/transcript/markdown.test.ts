@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { LOCAL_MEDIA_PREFIX } from '../../../../shared/local-media'
 import { LOCAL_HTML_PREFIX, localHtmlHref, renderMarkdown } from './markdown'
 
 /** Collapses the newlines remark inserts between block siblings. */
@@ -135,7 +136,7 @@ describe('HTML files an agent names', () => {
     expect(renderMarkdown('[page](https://example.com/a.html)')).toContain(
       'href="https://example.com/a.html" target="_blank"',
     )
-    // A file link that is not HTML stays stripped by the sanitizer.
+    // Unsupported file links stay stripped by the sanitizer.
     expect(renderMarkdown('[run](file:///C:/tools/setup.exe)')).not.toContain('href')
   })
 
@@ -158,4 +159,41 @@ describe('HTML files an agent names', () => {
     expect(localHtmlHref('file://localhost/C:/site/page.html')).not.toBeNull()
     expect(localHtmlHref('file:///C:/site/page.html')).not.toBeNull()
   })
+})
+
+describe('local media links', () => {
+  it.each([
+    [
+      'C:/Users/me/AppData/Roaming/@ari/desktop/aria/demos/expression.wav',
+      'C:/Users/me/AppData/Roaming/@ari/desktop/aria/demos/expression.wav',
+    ],
+    ['C:/Demo Files/Expression Demo.WAV', 'C:/Demo%20Files/Expression%20Demo.WAV'],
+    ['C:\\Demo Files\\Expression.wav', 'C:%5CDemo%20Files%5CExpression.wav'],
+    ['file:///C:/Demo%20Files/Expression.wav', 'file:///C:/Demo%20Files/Expression.wav'],
+    ['/tmp/demo.mp4', '/tmp/demo.mp4'],
+  ])('renders %s as a delegated media link', (path, normalized) => {
+    expect(renderMarkdown('[Play](<' + path + '>)')).toContain(
+      '<a href="' +
+        LOCAL_MEDIA_PREFIX +
+        encodeURIComponent(normalized) +
+        '" title="Open in your default player">Play</a>',
+    )
+  })
+
+  it('preserves web media links and source line references', () => {
+    expect(renderMarkdown('[Play](https://example.com/demo.wav)')).toContain(
+      'href="https://example.com/demo.wav" target="_blank"',
+    )
+    expect(renderMarkdown('[Source](src/player.ts:12)')).toContain('href="src/player.ts:12"')
+    expect(renderMarkdown('[Source](<C:/src/player.ts:12>)')).toBe('<p><a>Source</a></p>')
+  })
+
+  it.each([
+    'C:/tmp/setup.exe',
+    'file://host/share/demo.wav',
+    '//host/share/demo.wav',
+    'C:/tmp/demo.wav:12',
+  ])('keeps %s out of the media route', (path) =>
+    expect(renderMarkdown('[Open](<' + path + '>)')).not.toContain(LOCAL_MEDIA_PREFIX),
+  )
 })
