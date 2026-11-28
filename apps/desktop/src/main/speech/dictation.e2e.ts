@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { app, BrowserWindow, ipcMain, clipboard } from 'electron'
@@ -34,7 +34,8 @@ async function run(): Promise<void> {
     )
   const directory = join(process.cwd(), 'out/dictation-evidence')
   await mkdir(directory, { recursive: true })
-  app.setPath('userData', join(directory, 'userData'))
+  app.setPath('userData', await mkdtemp(join(directory, 'profile-')))
+  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
   await app.whenReady()
   const originalClipboard = new Map(
     clipboard.availableFormats().map((format) => [format, clipboard.readBuffer(format)]),
@@ -55,13 +56,19 @@ async function run(): Promise<void> {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
     },
   })
-  main.webContents.on('console-message', (_event, _level, message) =>
-    console.log('renderer:', message),
-  )
+  main.webContents.on('console-message', ({ message }) => console.log('renderer:', message))
   const status = { ready: true, engine: 'ready', model: { installed: { path: 'synthetic.gguf' } } }
   const sent: unknown[] = []
+  let pauseNextComposerResult = false
+  let finishComposerResult: ((result: { text: string }) => void) | undefined
+  const finishPendingDictation = (text: string): void => {
+    assert.ok(finishComposerResult)
+    finishComposerResult({ text })
+    finishComposerResult = undefined
+  }
   const widget = new AriaWidget({
     mainWindow: () => main,
     openSettings() {},
@@ -78,7 +85,13 @@ async function run(): Promise<void> {
   })
   for (const method of ['speech.status', 'stream.subscribe', 'stream.unsubscribe'])
     ipcMain.handle(`ari:${method}`, () => status)
-  ipcMain.handle('ari:speech.transcribe', () => ({ text: 'dictated' }))
+  ipcMain.handle('ari:speech.transcribe', () => {
+    if (!pauseNextComposerResult) return { text: 'dictated' }
+    pauseNextComposerResult = false
+    return new Promise<{ text: string }>((resolve) => {
+      finishComposerResult = resolve
+    })
+  })
   await main.loadFile(join(import.meta.dirname, '../dictation-renderer/testing/dictation.html'))
   await main.webContents.executeJavaScript(syntheticMicrophone)
   await wait(
@@ -92,6 +105,7 @@ async function run(): Promise<void> {
     main.show()
     main.focus()
     main.webContents.focus()
+    await wait(() => main.isFocused(), 'fixture window focused')
     await main.webContents
       .executeJavaScript(`(() => { const field = document.querySelector('textarea');
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, 'before OLD after');
@@ -99,10 +113,9 @@ async function run(): Promise<void> {
   }
   const draft = (): Promise<string> =>
     main.webContents.executeJavaScript(`document.querySelector('textarea').value`)
-  if (!process.env['ARIA_DICTATION_NATIVE_ONLY']) {
-    await setupDraft()
+  const startComposer = async (): Promise<void> => {
     await main.webContents.executeJavaScript(
-      `document.querySelector('[aria-label="Dictate a message"]').click()`,
+      `document.querySelector('[data-composer-draft="dictation-native-fixture"] [aria-label="Dictate a message"]').click()`,
     )
     await wait(
       () =>
@@ -111,11 +124,33 @@ async function run(): Promise<void> {
         ),
       'recording composer',
     )
-    await delay(150)
+    await wait(
+      () =>
+        main.webContents.executeJavaScript(
+          `Array.from(document.querySelectorAll('.ari-levels i')).some(bar => parseInt(bar.style.height, 10) > 3)`,
+        ),
+      'microphone samples in composer',
+    )
+  }
+  const stopComposer = async (): Promise<void> => {
     await main.webContents.executeJavaScript(
       `document.querySelector('[aria-label="Stop dictation"]').click()`,
     )
-    await wait(async () => (await draft()) === 'before dictated after', 'composer draft insertion')
+  }
+  if (!process.env['ARIA_DICTATION_NATIVE_ONLY']) {
+    await setupDraft()
+    await startComposer()
+    await stopComposer()
+    try {
+      await wait(
+        async () => (await draft()) === 'before dictated after',
+        'composer draft insertion',
+      )
+    } catch (error) {
+      console.log('Composer:', await main.webContents.executeJavaScript(`document.body.innerText`))
+      console.log('Draft:', await draft())
+      throw error
+    }
     assert.equal(
       await main.webContents.executeJavaScript(`document.querySelector('textarea').selectionStart`),
       15,
@@ -124,14 +159,79 @@ async function run(): Promise<void> {
     console.log(
       'PASS real React composer + recorder/worklet + preload IPC; synthetic microphone and transcription',
     )
+
+    for (const phase of ['recording', 'transcribing']) {
+      await setupDraft()
+      pauseNextComposerResult = true
+      finishComposerResult = undefined
+      await startComposer()
+      if (phase === 'transcribing') {
+        await stopComposer()
+        await wait(() => finishComposerResult !== undefined, 'first transcription pending')
+      }
+      const setVisibleChat = async (other: boolean): Promise<void> => {
+        await main.webContents.executeJavaScript(
+          `document.querySelector('[data-switch-chat]').click()`,
+        )
+        const field = other ? 'other-dictation-fixture' : 'dictation-native-fixture'
+        await wait(
+          () =>
+            main.webContents.executeJavaScript(
+              `document.querySelector('[data-dictation-session="${field}"]').checkVisibility()`,
+            ),
+          'selected chat visible',
+        )
+      }
+      await setVisibleChat(true)
+      await main.webContents.executeJavaScript(`(() => {
+        const field = document.querySelector('[data-dictation-session="other-dictation-fixture"]');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, 'Other draft');
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        field.focus();
+      })()`)
+      await wait(() => finishComposerResult !== undefined, 'detached transcription pending')
+      await setVisibleChat(false)
+      await setupDraft()
+      await startComposer()
+      finishPendingDictation('older dictation')
+      await wait(
+        () =>
+          main.webContents.executeJavaScript(
+            `!!document.querySelector('[data-toast-viewport] button[aria-label="Dismiss"]')`,
+          ),
+        'old transcript recoverable',
+      )
+      assert.equal(await draft(), 'before OLD after')
+      assert.equal(
+        await main.webContents.executeJavaScript(
+          `document.querySelector('[data-dictation-session="other-dictation-fixture"]').value`,
+        ),
+        'Other draft',
+      )
+      await stopComposer()
+      await wait(async () => (await draft()) === 'before dictated after', 'retry after chat switch')
+      await main.webContents.executeJavaScript(
+        `document.querySelector('[data-toast-viewport] button[aria-label="Dismiss"]').click()`,
+      )
+      await wait(
+        () =>
+          main.webContents.executeJavaScript(
+            `!document.querySelector('[data-toast-viewport] button[aria-label="Dismiss"]')`,
+          ),
+        'recovery toast dismissed',
+      )
+      console.log(`PASS same composer recovers and retries after switching chats while ${phase}`)
+    }
   }
 
   try {
     await widget.configure({
       ...defaultSettings,
+      experimental: { ...defaultSettings.experimental, ariaEnabled: true },
       speech: {
         ...defaultSettings.speech,
         enabled: true,
+        duckAudio: false,
         shortcut: 'f24',
         dictationShortcut: 'f23',
       },
@@ -144,7 +244,9 @@ async function run(): Promise<void> {
           await wait(
             () =>
               pill.webContents.executeJavaScript(
-                `document.querySelector('.aria-pill')?.dataset.phase === 'listening'`,
+                `document.querySelector('.aria-pill, .dictation-indicator')?.dataset.phase === ${JSON.stringify(
+                  key === UiohookKey.F23 ? 'recording' : 'listening',
+                )}`,
               ),
             'listening pill',
           )
@@ -180,6 +282,7 @@ async function run(): Promise<void> {
       assert.equal(await draft(), 'before dictated after')
       console.log('PASS native Aria shortcut dispatches to Aria only; composer preserved')
     }
+    if (process.env['ARIA_DICTATION_IN_APP_ONLY'] === '1') return
 
     // Launch a uniquely named scratch file. Never interact with another Notepad tab.
     const scratch = `ari-dictation-routing-check-${Date.now()}.txt`

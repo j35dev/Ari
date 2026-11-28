@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest'
-import { captureTextTarget } from './target'
+import { captureTextTarget, detachTextTarget } from './target'
 
 afterEach(() => document.body.replaceChildren())
 function input(): HTMLTextAreaElement {
@@ -45,6 +45,15 @@ it.each(['focus', 'blur', 'caret', 'edit', 'disabled', 'readonly', 'session', 'r
     expect(field.value).toBe(before)
   },
 )
+it('rejects a detached composer even if its textarea is still mounted and focused', async () => {
+  const field = input()
+  const target = captureTextTarget(field)
+  detachTextTarget(field)
+  await expect(target.insert('old speech')).rejects.toThrow('target changed')
+  expect(field.value).toBe('before OLD after')
+  await captureTextTarget(field).insert('fresh speech')
+  expect(field.value).toBe('before fresh speech after')
+})
 it('treats whitespace and cancellation as no insertion', async () => {
   const field = input()
   await captureTextTarget(field).insert('   ')

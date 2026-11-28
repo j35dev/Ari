@@ -7,6 +7,7 @@ import { transitions } from '@ari/ui/motion'
 import { useEngineSettings } from './features/settings/useEngineSettings'
 import { applyAppearance, cacheAppearance } from './lib/appearance'
 import { ToastProvider, useToast } from '@ari/ui/toast'
+import { DictationRecoveryProvider } from './features/speech/DictationRecovery'
 import { SessionImportDialog } from './features/providers'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
 import { focusComposerWhenReady } from './features/onboarding/landing-focus'
@@ -2753,7 +2754,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <ToastProvider>
           <MachinesProvider>
             <UpdateToastWatcher />
-            {children}
+            <DictationRecoveryProvider>{children}</DictationRecoveryProvider>
           </MachinesProvider>
         </ToastProvider>
       </RendererMotion>

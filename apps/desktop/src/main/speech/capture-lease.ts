@@ -6,9 +6,9 @@ export class CaptureLease {
   get busy(): boolean {
     return this.token !== null
   }
-  acquire(): string {
+  acquire(token: string = randomUUID()): string {
     if (this.busy) throw new Error('Another dictation is active. Stop or cancel it first.')
-    return (this.token = randomUUID())
+    return (this.token = token)
   }
   current(token: string): boolean {
     return this.token === token

@@ -576,6 +576,7 @@ export function ProjectDraft({
         )}
         <Composer
           sessionId={`project-draft:${draftId}`}
+          dictationTargetKey={JSON.stringify([selection.hostId, projectId, workspaceToken])}
           draftOnly
           remoteInput={selection.hostId !== 'local'}
           centered

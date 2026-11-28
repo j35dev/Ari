@@ -3,16 +3,34 @@ import { dictationInsertion, hasDictationText } from '../../../../shared/dictati
 
 type TextInput = HTMLTextAreaElement | HTMLInputElement
 const INPUT_TYPES = new Set(['text', 'search', 'url', 'tel'])
+const TARGET_DETACHED = 'ari:dictation-target-detached'
+
+function canInsert(input: TextInput): boolean {
+  return (
+    input.isConnected &&
+    !input.matches(':disabled') &&
+    !input.readOnly &&
+    !input.closest('[hidden], [inert]') &&
+    (input.checkVisibility?.({ visibilityProperty: true }) ?? true)
+  )
+}
+
+/** A cached composer can hide and show again without replacing its textarea. */
+export function detachTextTarget(input: HTMLTextAreaElement): void {
+  input.dispatchEvent(new Event(TARGET_DETACHED))
+}
 
 /** A recording owns one unchanged draft and selection, never the next focused field. */
-export function captureTextTarget(element: Element | null): DictationTarget {
+export function captureTextTarget(
+  element: Element | null,
+  onFocusLost?: () => void,
+): DictationTarget {
   if (!(element instanceof HTMLTextAreaElement) && !(element instanceof HTMLInputElement))
     throw new Error('Focus a text field before dictating.')
   const input: TextInput = element
   if (input instanceof HTMLInputElement && !INPUT_TYPES.has(input.type))
     throw new Error('Dictation is unavailable in this field.')
-  if (input.disabled || input.readOnly || !input.isConnected)
-    throw new Error('This text field is unavailable.')
+  if (!canInsert(input)) throw new Error('This text field is unavailable.')
   const value = input.value
   const start = input.selectionStart
   const end = input.selectionEnd
@@ -22,19 +40,25 @@ export function captureTextTarget(element: Element | null): DictationTarget {
   const invalidate = (): void => {
     valid = false
   }
+  const focusLost = (): void => {
+    invalidate()
+    onFocusLost?.()
+  }
   const focus = (event: FocusEvent): void => {
-    if (event.target !== input) invalidate()
+    if (event.target !== input) focusLost()
   }
   input.addEventListener('input', invalidate)
-  input.addEventListener('blur', invalidate)
+  input.addEventListener('blur', focusLost)
+  input.addEventListener(TARGET_DETACHED, focusLost)
   document.addEventListener('focusin', focus)
-  window.addEventListener('blur', invalidate)
+  window.addEventListener('blur', focusLost)
   const cancel = (): void => {
     valid = false
     input.removeEventListener('input', invalidate)
-    input.removeEventListener('blur', invalidate)
+    input.removeEventListener('blur', focusLost)
+    input.removeEventListener(TARGET_DETACHED, focusLost)
     document.removeEventListener('focusin', focus)
-    window.removeEventListener('blur', invalidate)
+    window.removeEventListener('blur', focusLost)
   }
   return {
     cancel,
@@ -46,9 +70,7 @@ export function captureTextTarget(element: Element | null): DictationTarget {
       const available =
         valid &&
         current() &&
-        input.isConnected &&
-        !input.disabled &&
-        !input.readOnly &&
+        canInsert(input) &&
         (!(input instanceof HTMLInputElement) || INPUT_TYPES.has(input.type)) &&
         input.dataset.dictationSession === session &&
         input.value === value &&
@@ -89,10 +111,21 @@ declare global {
 
 export function installDictationTarget(): void {
   const targets = new Map<string, DictationTarget>()
+  const clear = (): void => {
+    for (const target of targets.values()) target.cancel()
+    targets.clear()
+  }
+  // Cancel locally too, in case the native Escape notification and insert IPC cross.
+  window.addEventListener(
+    'keydown',
+    (event) => {
+      if (event.key === 'Escape') clear()
+    },
+    true,
+  )
   window.ariDictation = {
     capture(id) {
-      for (const target of targets.values()) target.cancel()
-      targets.clear()
+      clear()
       targets.set(id, captureTextTarget(document.activeElement))
     },
     async insert(id, text) {

@@ -57,3 +57,15 @@ it('keeps empty speech empty instead of generating join whitespace', async () =>
   await vi.waitFor(() => expect(mock.insert).toHaveBeenCalledOnce())
   expect(mock.insert.mock.calls[0]![0]).toBe('')
 })
+
+it('releases a native target whose snapshot fails during insertion', async () => {
+  mock.snapshot.mockImplementationOnce(() => {
+    throw new Error('The field closed.')
+  })
+  parent.emit('message', { data: { id: 2, kind: 'insert', target: 'one', text: 'dictated' } })
+  await vi.waitFor(() =>
+    expect(parent.postMessage).toHaveBeenCalledWith({ id: 2, error: 'The field closed.' }),
+  )
+  expect(mock.insert).not.toHaveBeenCalled()
+  expect(mock.cancel).toHaveBeenCalledOnce()
+})

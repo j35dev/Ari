@@ -46,7 +46,8 @@ const api = {
     },
   },
   dictation: {
-    acquire: (): Promise<string> => ipcRenderer.invoke('ari:speechCapture.acquire'),
+    acquire: (token?: string): Promise<string> =>
+      ipcRenderer.invoke('ari:speechCapture.acquire', token),
     release: (token: string): Promise<void> =>
       ipcRenderer.invoke('ari:speechCapture.release', token),
   },

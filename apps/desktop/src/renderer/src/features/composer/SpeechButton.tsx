@@ -1,11 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, LoaderCircle, Mic } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
-import { iconButton, quietButton } from '../../lib/recipes'
+import { iconButton } from '../../lib/recipes'
+import { useKeepDictation } from '../speech/DictationRecovery'
 import { startRecording } from '../speech/recorder'
 import { useSpeech } from '../speech/useSpeech'
 import type { DictationTarget } from '../../../../shared/dictation'
+import { hasDictationText } from '../../../../shared/dictation-format'
 import {
   LEVEL_BARS,
   LevelMeter,
@@ -27,12 +29,18 @@ interface Meter {
 
 const EMPTY_METER: Meter = { cells: [], seconds: 0 }
 
+interface Attempt {
+  disposition: 'insert' | 'recover' | 'discard'
+  target?: DictationTarget
+  recording?: Awaited<ReturnType<typeof startRecording>>
+  releaseLease?: () => void
+  keepText(text: string): void
+}
+
 /** `0:07`, `12:40`: elapsed recording time. */
 function clock(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
-import { hasDictationText } from '../../../../shared/dictation-format'
-
 export function SpeechButton({
   disabled = false,
   captureTarget,
@@ -40,7 +48,7 @@ export function SpeechButton({
   onStateChange,
 }: {
   disabled?: boolean
-  captureTarget: () => DictationTarget
+  captureTarget: (onFocusLost: () => void) => DictationTarget
   /**
    * Where "Listening", the level meter and the timer are drawn. The composer
    * hands over the left side of its control row; without a slot they sit
@@ -51,43 +59,82 @@ export function SpeechButton({
   onStateChange?: (state: SpeechState) => void
 }) {
   const { status } = useSpeech()
-  const recording = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null)
-  const mounted = useRef(true)
-  const generation = useRef(0)
+  const keepText = useKeepDictation()
+  const active = useRef<Attempt | null>(null)
   const [state, setState] = useState<SpeechState>('idle')
   const [meter, setMeter] = useState<Meter>(EMPTY_METER)
   const [error, setError] = useState<string | null>(null)
-  const [uninserted, setUninserted] = useState<string[]>([])
-  const target = useRef<DictationTarget | null>(null)
-  const lease = useRef<string | null>(null)
-  const busy = useRef(false)
-  const release = (): void => {
-    target.current?.cancel()
-    target.current = null
-    const token = lease.current
-    lease.current = null
-    if (token) void window.ari?.dictation?.release(token).catch(() => undefined)
-    busy.current = false
-  }
-
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-      generation.current++
-      recording.current?.cancel()
-      recording.current = null
-      release()
-    }
+  const release = useCallback((attempt: Attempt): void => {
+    if (active.current !== attempt) return
+    active.current = null
+    attempt.target?.cancel()
+    attempt.releaseLease?.()
   }, [])
-  useEffect(() => {
-    if (!disabled && status.ready) return
-    generation.current++
-    recording.current?.cancel()
-    recording.current = null
-    release()
+
+  const stop = useCallback(
+    async (attempt: Attempt): Promise<void> => {
+      const recording = attempt.recording
+      if (!recording) return
+      attempt.recording = undefined
+      const current = (): boolean => active.current === attempt
+      if (current()) setState('transcribing')
+      let transcript: string | undefined
+      try {
+        const pcm = await recording.stop()
+        if (attempt.disposition === 'discard' || !pcm.length) return
+        const { text } = await rpc.invoke('speech.transcribe', { pcm })
+        if (!hasDictationText(text)) return
+        transcript = text
+        if (current() && attempt.target) await attempt.target.insert(text, current)
+        else if (attempt.disposition === 'recover') attempt.keepText(text)
+      } catch (reason) {
+        if (attempt.disposition === 'discard') return
+        if (transcript !== undefined) attempt.keepText(transcript)
+        else if (current()) setError(reason instanceof Error ? reason.message : String(reason))
+      } finally {
+        if (current()) {
+          release(attempt)
+          setState('idle')
+        }
+      }
+    },
+    [release],
+  )
+
+  const recover = useCallback(
+    (attempt: Attempt): void => {
+      attempt.disposition = 'recover'
+      release(attempt)
+      // If already transcribing, the existing stop call will keep the result.
+      void stop(attempt)
+    },
+    [release, stop],
+  )
+
+  const discard = useCallback(
+    (attempt: Attempt): void => {
+      attempt.disposition = 'discard'
+      release(attempt)
+      attempt.recording?.cancel()
+    },
+    [release],
+  )
+
+  useLayoutEffect(() => {
+    // Activity tears down effects when hiding a chat but preserves its state.
     setState('idle')
-  }, [disabled, status.ready])
+    setError(null)
+    return () => {
+      if (active.current) recover(active.current)
+    }
+  }, [recover])
+  useLayoutEffect(() => {
+    if (!disabled && status.ready) return
+    if (active.current) discard(active.current)
+    setState('idle')
+    setError(null)
+  }, [disabled, status.ready, discard])
+  useLayoutEffect(() => () => onStateChange?.('idle'), [onStateChange])
   // Before paint, so the host never shows its pickers beside the status strip.
   useLayoutEffect(() => {
     onStateChange?.(state)
@@ -101,7 +148,7 @@ export function SpeechButton({
     let ticks = 0
     let peak = 0
     const tick = setInterval(() => {
-      peak = Math.max(peak, recording.current?.level() ?? 0)
+      peak = Math.max(peak, active.current?.recording?.level() ?? 0)
       ticks += 1
       const seconds = Math.floor((Date.now() - startedAt) / 1000)
       if (ticks % stride !== 0) {
@@ -120,58 +167,23 @@ export function SpeechButton({
     return () => clearInterval(tick)
   }, [state])
 
-  const stop = async (): Promise<void> => {
-    const active = recording.current
-    if (!active) return
-    recording.current = null
-    const attempt = generation.current
-    setState('transcribing')
-    let transcript = ''
-    try {
-      const pcm = await active.stop()
-      if (!mounted.current || generation.current !== attempt || !pcm.length) return
-      const result = await rpc.invoke('speech.transcribe', { pcm })
-      transcript = result.text
-      if (mounted.current && generation.current === attempt && hasDictationText(result.text))
-        await target.current?.insert(
-          result.text,
-          () => mounted.current && generation.current === attempt,
-        )
-    } catch (reason) {
-      if (mounted.current && generation.current === attempt) {
-        setError(reason instanceof Error ? reason.message : String(reason))
-        if (transcript.trim()) setUninserted((previous) => [...previous, transcript])
-      }
-    } finally {
-      if (generation.current === attempt) {
-        release()
-        if (mounted.current) setState('idle')
-      }
-    }
-  }
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     const blur = (): void => {
-      if (!busy.current) return
-      generation.current++
-      recording.current?.cancel()
-      recording.current = null
-      release()
+      if (!active.current) return
+      recover(active.current)
       setState('idle')
     }
     const key = (event: KeyboardEvent): void => {
-      if (!busy.current) return
+      const attempt = active.current
+      if (!attempt) return
       if (event.key === 'Enter' && !event.isComposing) {
         event.preventDefault()
         event.stopImmediatePropagation()
-        void stop()
+        void stop(attempt)
       }
       if (event.key === 'Escape') {
         event.preventDefault()
-        generation.current++
-        recording.current?.cancel()
-        recording.current = null
-        release()
+        discard(attempt)
         setState('idle')
       }
     }
@@ -181,44 +193,47 @@ export function SpeechButton({
       window.removeEventListener('keydown', key, true)
       window.removeEventListener('blur', blur)
     }
-  }, [])
+  }, [discard, recover, stop])
 
   const start = async (): Promise<void> => {
-    if (busy.current || disabled || !status.ready) return
-    busy.current = true
+    if (active.current || disabled || !status.ready) return
+    const attempt: Attempt = { disposition: 'insert', keepText }
+    active.current = attempt
     setError(null)
     setState('starting')
-    const attempt = ++generation.current
     try {
       // Capture synchronously, before microphone acquisition or any focus change.
-      target.current = captureTarget()
-      const token = await window.ari?.dictation?.acquire()
-      if (!mounted.current || generation.current !== attempt) {
-        if (token) void window.ari?.dictation?.release(token).catch(() => undefined)
-        return
+      attempt.target = captureTarget(() => {
+        if (active.current !== attempt) return
+        recover(attempt)
+        setState('idle')
+      })
+      const bridge = window.ari?.dictation
+      if (bridge) {
+        // Know the token before the IPC reply so navigation can release it immediately.
+        const token = crypto.randomUUID()
+        attempt.releaseLease = () => void bridge.release(token).catch(() => undefined)
+        await bridge.acquire(token)
+        if (active.current !== attempt) return
       }
-      lease.current = token ?? null
-      const active = await startRecording({
+      const recording = await startRecording({
         onError: (reason) => {
-          if (!mounted.current || generation.current !== attempt) return
-          generation.current++
-          recording.current?.cancel()
-          recording.current = null
-          release()
+          if (active.current !== attempt) return
+          discard(attempt)
           setError(reason.message)
           setState('idle')
         },
       })
-      if (!mounted.current || generation.current !== attempt) {
-        active.cancel()
+      if (active.current !== attempt) {
+        recording.cancel()
         return
       }
-      recording.current = active
+      attempt.recording = recording
       setMeter(EMPTY_METER)
       setState('recording')
     } catch (reason) {
-      if (mounted.current && generation.current === attempt) {
-        release()
+      if (active.current === attempt) {
+        release(attempt)
         setError(reason instanceof Error ? reason.message : String(reason))
         setState('idle')
       }
@@ -278,7 +293,11 @@ export function SpeechButton({
         aria-pressed={listening}
         disabled={unavailable || state === 'starting' || state === 'transcribing'}
         onPointerDown={(event) => event.preventDefault()}
-        onClick={() => void (listening ? stop() : start())}
+        onClick={() => {
+          const attempt = active.current
+          if (attempt) void stop(attempt)
+          else void start()
+        }}
         className={dictating ? roundButton(listening ? 'ink' : 'idle') : iconButton}
       >
         {state === 'starting' || state === 'transcribing' ? (
@@ -289,28 +308,6 @@ export function SpeechButton({
           <Mic size={16} strokeWidth={1.75} aria-hidden />
         )}
       </button>
-      {uninserted.length > 0 && (
-        <details className="absolute bottom-full right-0 z-10 mb-2 w-80 rounded-xl border border-border-strong bg-surface-1 p-3 text-[13px] text-fg shadow-2">
-          <summary className="cursor-pointer font-medium">Dictated text kept for review</summary>
-          <p className="my-2 text-fg-subtle">
-            Your draft changed, so this text was kept here. Select and copy it into the intended
-            field.
-          </p>
-          <textarea
-            aria-label="Uninserted dictated text"
-            readOnly
-            value={uninserted.join('\n\n')}
-            className="ari-scroll h-32 w-full resize-y rounded-md border border-border bg-bg p-2 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          />
-          <button
-            type="button"
-            className={`${quietButton} -ml-2.5 mt-1`}
-            onClick={() => setUninserted([])}
-          >
-            Dismiss kept text
-          </button>
-        </details>
-      )}
     </span>
   )
 }
