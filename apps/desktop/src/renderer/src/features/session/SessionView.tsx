@@ -2272,7 +2272,11 @@ function SessionViewContent({
 
   const subagentOpen = openSubagent !== null
   const view = (
-    <div className="ari-session-workspace relative flex h-full min-h-0">
+    <div
+      className="ari-session-workspace relative flex h-full min-h-0"
+      data-file-link-session={sessionId}
+      data-remote-workspace={remote ? '' : undefined}
+    >
       {/* An opened sub-agent takes the pane; the conversation stays mounted
           behind it, so Back returns to it as it was. */}
       {openSubagent !== null ? (

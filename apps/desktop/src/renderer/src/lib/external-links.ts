@@ -1,6 +1,6 @@
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from './rpc'
-import { LOCAL_HTML_PREFIX } from '../features/transcript/markdown'
+import { LOCAL_FILE_PREFIX } from '../../../shared/local-file-link'
 
 const log = createLogger('desktop:external-links')
 
@@ -21,23 +21,29 @@ function isBypassed(anchor: HTMLAnchorElement, href: string): boolean {
 /** Fired on `window` when a clicked link could not be opened; `detail` says why. */
 export const LINK_FAILED_EVENT = 'ari:link-failed'
 
-/** An HTML file an agent named: main resolves it in the session's folder and opens it. */
-function openLocalHtml(anchor: HTMLAnchorElement, href: string): void {
-  let path: string
+async function openLocalFile(anchor: HTMLAnchorElement, href: string): Promise<void> {
   try {
-    path = decodeURIComponent(href.slice(LOCAL_HTML_PREFIX.length))
-  } catch {
-    return
-  }
-  // A remote session's files are on another machine; there is no folder here to resolve in.
-  const sessionId = anchor.closest('[data-session]')?.getAttribute('data-session') ?? undefined
-  rpc
-    .invoke('shell.openHtmlFile', { path, ...(sessionId ? { sessionId } : {}) })
-    .catch((error: unknown) => {
-      const reason = error instanceof Error ? error.message : String(error)
-      log.warn('open html file failed', { error: reason })
-      window.dispatchEvent(new CustomEvent(LINK_FAILED_EVENT, { detail: reason }))
+    if (anchor.closest('[data-remote-workspace]'))
+      throw new Error('This link points to a file or folder on another machine.')
+    const path = decodeURIComponent(href.slice(LOCAL_FILE_PREFIX.length))
+    const sessionId =
+      anchor.closest('[data-file-link-session]')?.getAttribute('data-file-link-session') ??
+      anchor.closest('[data-session]')?.getAttribute('data-session')
+    const result = await rpc.invoke('shell.openLocalFile', {
+      path,
+      ...(sessionId ? { sessionId } : {}),
     })
+    if (!result.opened) throw new Error(result.reason)
+  } catch (error) {
+    const reason =
+      error instanceof URIError
+        ? 'This file link is invalid.'
+        : error instanceof Error
+          ? error.message
+          : String(error)
+    log.warn('open local file failed', { error: reason })
+    window.dispatchEvent(new CustomEvent(LINK_FAILED_EVENT, { detail: reason }))
+  }
 }
 
 function openExternal(href: string): void {
@@ -52,9 +58,14 @@ function intercept(event: Event): void {
   const anchor = target.closest('a[href]')
   if (!(anchor instanceof HTMLAnchorElement)) return
   const href = anchor.getAttribute('href') ?? ''
-  if (href.startsWith(LOCAL_HTML_PREFIX)) {
+  if (href.startsWith(LOCAL_FILE_PREFIX)) {
     event.preventDefault()
-    openLocalHtml(anchor, href)
+    if (
+      event.isTrusted &&
+      event instanceof MouseEvent &&
+      event.button === (event.type === 'click' ? 0 : 1)
+    )
+      void openLocalFile(anchor, href)
     return
   }
   if (href.length === 0 || isBypassed(anchor, href)) return
@@ -66,7 +77,7 @@ function intercept(event: Event): void {
 
 /**
  * Global delegated handler so every surface rendering agent markdown
- * (transcript, tool results, approvals) opens links in the OS browser
+ * (transcript, tool results, approvals) opens links in the associated OS app
  * instead of navigating the ADE window. Covers left-click plus
  * middle-click / Ctrl+click via `auxclick`.
  */

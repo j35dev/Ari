@@ -157,7 +157,7 @@ import { probePiCatalog } from '@ari/providers/pi/catalog'
 import { QoderDriver, qoderSessionPool } from '@ari/providers/qoder'
 import { HermesDriver } from '@ari/providers/hermes'
 import type { DetectEnvironment, Detection } from '@ari/providers/types'
-import { resolveLocalHtml } from './local-html'
+import { openLocalFileLink } from './local-file-link'
 import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
 import {
@@ -3311,23 +3311,22 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { opened: true }
   })
 
-  // A click on an HTML file an agent named in the chat. Only .html/.htm
-  // files reach the system, so agent output can never launch a program.
-  r.register('shell.openHtmlFile', async (params) => {
-    let baseDir: string | null = null
-    if (params.sessionId !== undefined) {
-      const loaded = await getSessionStore()
-        .load(params.sessionId)
-        .catch(() => null)
-      baseDir = loaded?.session ? await engine.workspace(loaded.session) : null
-    }
-    const path = resolveLocalHtml(params.path, baseDir)
-    const info = await stat(path).catch(() => null)
-    if (!info?.isFile()) throw new Error(`No file at ${path}`)
-    const failure = await shell.openPath(path)
-    if (failure) throw new Error(failure)
-    return { opened: true }
-  })
+  r.register('shell.openLocalFile', (params) =>
+    openLocalFileLink(
+      params.path,
+      async () => {
+        if (!params.sessionId) return null
+        const loaded = await getSessionStore()
+          .load(params.sessionId)
+          .catch(() => null)
+        return loaded?.session ? engine.workspace(loaded.session) : null
+      },
+      {
+        openPath: (path) => shell.openPath(path),
+        showItemInFolder: (path) => shell.showItemInFolder(path),
+      },
+    ),
+  )
 
   const walkCache = new WalkCache()
   r.register('files.index', async (params) => {
@@ -3830,7 +3829,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     ipcMain.removeHandler(`ari:${method}`)
     ipcMain.handle(`ari:${method}`, (event, payload) => {
       if (stopping) throw new Error('Ari is shutting down')
-      if (!isTrustedIpcSender(event.sender, contents)) {
+      if (
+        !isTrustedIpcSender(event.sender, contents) ||
+        (method === 'shell.openLocalFile' && event.senderFrame !== contents.mainFrame)
+      ) {
         throw new Error(`rejected IPC sender for ${method}`)
       }
       return rpcRegistry.invoke(method, payload).catch((error: unknown) => {

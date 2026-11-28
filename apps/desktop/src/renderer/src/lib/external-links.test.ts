@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installExternalLinkInterceptor, isExternalHref, LINK_FAILED_EVENT } from './external-links'
 import { renderMarkdown } from '../features/transcript/markdown'
 
@@ -73,55 +73,84 @@ describe('installExternalLinkInterceptor', () => {
   })
 })
 
-describe('HTML file links in a conversation', () => {
+describe('file and folder clicks in a conversation', () => {
   const invoke = vi.fn()
+  const failed = vi.fn()
+  let cleanup: () => void
+  let delegatedClick: EventListener | undefined
 
   beforeEach(() => {
     invoke.mockReset().mockResolvedValue({ opened: true })
+    failed.mockReset()
     window.ari = { invoke, subscribe: () => () => undefined }
     document.body.innerHTML = ''
+    window.addEventListener(LINK_FAILED_EVENT, failed)
+    const listen = vi.spyOn(document, 'addEventListener')
+    cleanup = installExternalLinkInterceptor()
+    const listener = listen.mock.calls.find(([name]) => name === 'click')?.[1]
+    delegatedClick = typeof listener === 'function' ? listener : undefined
+    listen.mockRestore()
   })
 
-  function click(): MouseEvent {
+  afterEach(() => {
+    cleanup()
+    window.removeEventListener(LINK_FAILED_EVENT, failed)
+  })
+
+  function click(trusted: boolean): void {
     const anchor = document.querySelector('a')
-    if (!anchor) throw new Error('missing fixture anchor')
-    const event = new MouseEvent('click', { bubbles: true, cancelable: true })
-    anchor.dispatchEvent(event)
-    return event
+    if (!anchor || !delegatedClick) throw new Error('missing click fixture')
+    if (!trusted) {
+      anchor.click()
+      return
+    }
+    // Only a browser input event can set isTrusted on a real event.
+    const event = Object.create(MouseEvent.prototype) as MouseEvent
+    for (const [key, value] of Object.entries({
+      type: 'click',
+      button: 0,
+      target: anchor,
+      isTrusted: true,
+      preventDefault: vi.fn(),
+    }))
+      Object.defineProperty(event, key, { value })
+    delegatedClick(event)
   }
 
-  it('asks main to open the file, naming the session it was written in', () => {
-    const cleanup = installExternalLinkInterceptor()
-    try {
-      document.body.innerHTML = `<div data-session="sess_1">${renderMarkdown('[report](out/report.html#totals)')}</div>`
-      const event = click()
-      expect(event.defaultPrevented).toBe(true)
-      expect(invoke).toHaveBeenCalledWith('shell.openHtmlFile', {
-        path: 'out/report.html#totals',
-        sessionId: 'sess_1',
-      })
-    } finally {
-      cleanup()
-    }
+  it('passes the local session and encoded file path only on a trusted click', () => {
+    document.body.innerHTML =
+      '<div data-file-link-session="sess_local">' +
+      renderMarkdown('[Read](<reports/Project Brief%231.pdf>)') +
+      '</div>'
+    click(false)
+    expect(invoke).not.toHaveBeenCalled()
+    click(true)
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('shell.openLocalFile', {
+      sessionId: 'sess_local',
+      path: 'reports/Project%20Brief%231.pdf',
+    })
   })
 
-  it('says why when the file could not be opened', async () => {
-    invoke.mockRejectedValue(new Error('No file at /work/out/report.html'))
-    const reasons: unknown[] = []
-    const listen = (event: Event): void => {
-      reasons.push((event as CustomEvent).detail)
-    }
-    window.addEventListener(LINK_FAILED_EVENT, listen)
-    const cleanup = installExternalLinkInterceptor()
-    try {
-      document.body.innerHTML = renderMarkdown('[report](out/report.html)')
-      click()
-      await vi.waitFor(() => expect(reasons).toEqual(['No file at /work/out/report.html']))
-      // No session around the link: main is told only the path.
-      expect(invoke).toHaveBeenCalledWith('shell.openHtmlFile', { path: 'out/report.html' })
-    } finally {
-      cleanup()
-      window.removeEventListener(LINK_FAILED_EVENT, listen)
-    }
+  it.each(['<C:/Demos/Brief.pdf>', './reports/'])(
+    'keeps remote workspace paths on their host (%s)',
+    (target) => {
+      document.body.innerHTML =
+        '<div data-file-link-session="sess_remote" data-remote-workspace>' +
+        renderMarkdown('[Open](' + target + ')') +
+        '</div>'
+      click(true)
+      expect(invoke).not.toHaveBeenCalled()
+      expect(failed.mock.calls[0]?.[0]).toMatchObject({
+        detail: expect.stringContaining('another machine'),
+      })
+    },
+  )
+
+  it('reports a failed native action', async () => {
+    const reason = 'The file or folder could not be found or accessed.'
+    invoke.mockResolvedValue({ opened: false, reason })
+    document.body.innerHTML = renderMarkdown('[Open](C:/Demos/Brief.pdf)')
+    click(true)
+    await vi.waitFor(() => expect(failed.mock.calls[0]?.[0]).toMatchObject({ detail: reason }))
   })
 })
