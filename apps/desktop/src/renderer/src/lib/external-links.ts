@@ -1,7 +1,6 @@
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from './rpc'
-import { LOCAL_HTML_PREFIX } from '../features/transcript/markdown'
-import { LOCAL_MEDIA_PREFIX } from '../../../shared/local-media'
+import { LOCAL_FILE_PREFIX } from '../../../shared/local-file-link'
 
 const log = createLogger('desktop:external-links')
 
@@ -22,21 +21,19 @@ function isBypassed(anchor: HTMLAnchorElement, href: string): boolean {
 /** Fired on `window` when a clicked link could not be opened; `detail` says why. */
 export const LINK_FAILED_EVENT = 'ari:link-failed'
 
-/** Main validates the path and hands it to the OS file association. */
-async function openLocalFile(
-  anchor: HTMLAnchorElement,
-  href: string,
-  prefix: typeof LOCAL_HTML_PREFIX | typeof LOCAL_MEDIA_PREFIX,
-): Promise<void> {
+async function openLocalFile(anchor: HTMLAnchorElement, href: string): Promise<void> {
   try {
-    const path = decodeURIComponent(href.slice(prefix.length))
-    if (prefix === LOCAL_MEDIA_PREFIX) {
-      const result = await rpc.invoke('shell.openMediaFile', { path })
-      if (!result.opened) throw new Error(result.reason)
-    } else {
-      const sessionId = anchor.closest('[data-session]')?.getAttribute('data-session')
-      await rpc.invoke('shell.openHtmlFile', { path, ...(sessionId ? { sessionId } : {}) })
-    }
+    if (anchor.closest('[data-remote-workspace]'))
+      throw new Error('This link points to a file or folder on another machine.')
+    const path = decodeURIComponent(href.slice(LOCAL_FILE_PREFIX.length))
+    const sessionId =
+      anchor.closest('[data-file-link-session]')?.getAttribute('data-file-link-session') ??
+      anchor.closest('[data-session]')?.getAttribute('data-session')
+    const result = await rpc.invoke('shell.openLocalFile', {
+      path,
+      ...(sessionId ? { sessionId } : {}),
+    })
+    if (!result.opened) throw new Error(result.reason)
   } catch (error) {
     const reason =
       error instanceof URIError
@@ -61,12 +58,14 @@ function intercept(event: Event): void {
   const anchor = target.closest('a[href]')
   if (!(anchor instanceof HTMLAnchorElement)) return
   const href = anchor.getAttribute('href') ?? ''
-  const localPrefix = ([LOCAL_HTML_PREFIX, LOCAL_MEDIA_PREFIX] as const).find((prefix) =>
-    href.startsWith(prefix),
-  )
-  if (localPrefix) {
+  if (href.startsWith(LOCAL_FILE_PREFIX)) {
     event.preventDefault()
-    void openLocalFile(anchor, href, localPrefix)
+    if (
+      event.isTrusted &&
+      event instanceof MouseEvent &&
+      event.button === (event.type === 'click' ? 0 : 1)
+    )
+      void openLocalFile(anchor, href)
     return
   }
   if (href.length === 0 || isBypassed(anchor, href)) return

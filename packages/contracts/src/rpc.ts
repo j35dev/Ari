@@ -1054,13 +1054,11 @@ export const rpcParams = {
   'shell.revealPath': z.object({ path: z.string().min(1) }),
   /** Opens a URL in the OS browser; only http/https/mailto reach openExternal. */
   'shell.openUrl': z.object({ url: z.string().min(1).max(2048) }),
-  /** An HTML file an agent named in the chat; relative paths resolve in the session's folder. */
-  'shell.openHtmlFile': z.object({
+  /** A clicked chat file or folder. Relative paths resolve in the local session's workspace. */
+  'shell.openLocalFile': z.object({
     path: z.string().min(1).max(4096),
     sessionId: z.string().min(1).optional(),
   }),
-  /** An absolute local audio or video link to open in the OS default player. */
-  'shell.openMediaFile': z.object({ path: z.string().min(1).max(4096) }),
   'files.index': z
     .object({ projectId: z.string().min(1).optional(), sessionId: z.string().min(1).optional() })
     .refine(
@@ -1615,8 +1613,7 @@ export interface RpcResults extends OrchestrationResults, MachinesRpcResults, Tr
   'dialog.pickFile': { path: string | null }
   'shell.revealPath': { revealed: boolean }
   'shell.openUrl': { opened: boolean }
-  'shell.openHtmlFile': { opened: boolean }
-  'shell.openMediaFile': { opened: true } | { opened: false; reason: string }
+  'shell.openLocalFile': { opened: true } | { opened: false; reason: string }
   'files.index': { paths: string[] }
   'search.content': ContentSearchMatch[]
   'endpoints.list': {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { LOCAL_MEDIA_PREFIX } from '../../../../shared/local-media'
-import { LOCAL_HTML_PREFIX, localHtmlHref, renderMarkdown } from './markdown'
+import { LOCAL_FILE_PREFIX } from '../../../../shared/local-file-link'
+import { localHtmlHref, renderMarkdown } from './markdown'
 
 /** Collapses the newlines remark inserts between block siblings. */
 function flat(html: string): string {
@@ -108,13 +108,12 @@ describe('renderMarkdown', () => {
 })
 
 describe('HTML files an agent names', () => {
-  const marker = (path: string): string => LOCAL_HTML_PREFIX + encodeURIComponent(path)
+  const marker = (path: string): string => LOCAL_FILE_PREFIX + encodeURIComponent(path)
 
   it('links a markdown link to a local HTML file, whatever form the path takes', () => {
     for (const path of ['out/report.html', 'C:/tmp/report.htm', 'file:///tmp/report.html']) {
       const html = renderMarkdown(`[the report](${path})`)
       expect(html).toContain(`href="${marker(path)}"`)
-      expect(html).toContain('title="Open in your browser"')
       expect(html).toContain('the report</a>')
     }
   })
@@ -125,8 +124,8 @@ describe('HTML files an agent names', () => {
     )
     expect(renderMarkdown('Open `dist/index.html`.')).toContain(marker('dist/index.html'))
     // A bare name is usually a mention, and a fenced block is code to read.
-    expect(renderMarkdown('I edited `index.html`.')).not.toContain(LOCAL_HTML_PREFIX)
-    expect(renderMarkdown('```\ndist/index.html\n```')).not.toContain(LOCAL_HTML_PREFIX)
+    expect(renderMarkdown('I edited `index.html`.')).not.toContain(LOCAL_FILE_PREFIX)
+    expect(renderMarkdown('```\ndist/index.html\n```')).not.toContain(LOCAL_FILE_PREFIX)
   })
 
   it('leaves web links and other files alone', () => {
@@ -136,8 +135,6 @@ describe('HTML files an agent names', () => {
     expect(renderMarkdown('[page](https://example.com/a.html)')).toContain(
       'href="https://example.com/a.html" target="_blank"',
     )
-    // Unsupported file links stay stripped by the sanitizer.
-    expect(renderMarkdown('[run](file:///C:/tools/setup.exe)')).not.toContain('href')
   })
 
   it('never links a page on another machine, which would leak the login hash', () => {
@@ -152,7 +149,7 @@ describe('HTML files an agent names', () => {
     ])
       expect(localHtmlHref(path), path).toBeNull()
     expect(renderMarkdown('Open `\\\\attacker\\share\\page.html`.')).not.toContain(
-      LOCAL_HTML_PREFIX,
+      LOCAL_FILE_PREFIX,
     )
     expect(renderMarkdown('[page](file://attacker/share/page.html)')).not.toContain('href')
     // This computer's files still link.
@@ -161,39 +158,39 @@ describe('HTML files an agent names', () => {
   })
 })
 
-describe('local media links', () => {
+describe('local file and folder links', () => {
   it.each([
-    [
-      'C:/Users/me/AppData/Roaming/@ari/desktop/aria/demos/expression.wav',
-      'C:/Users/me/AppData/Roaming/@ari/desktop/aria/demos/expression.wav',
-    ],
+    ['C:/Aria/demos/expression.wav', 'C:/Aria/demos/expression.wav'],
     ['C:/Demo Files/Expression Demo.WAV', 'C:/Demo%20Files/Expression%20Demo.WAV'],
-    ['C:\\Demo Files\\Expression.wav', 'C:%5CDemo%20Files%5CExpression.wav'],
-    ['file:///C:/Demo%20Files/Expression.wav', 'file:///C:/Demo%20Files/Expression.wav'],
+    ['C:\\Demo Files\\Brief.pdf', 'C:%5CDemo%20Files%5CBrief.pdf'],
+    ['file:///C:/Demo%20Files/Cover.png', 'file:///C:/Demo%20Files/Cover.png'],
     ['/tmp/demo.mp4', '/tmp/demo.mp4'],
-  ])('renders %s as a delegated media link', (path, normalized) => {
-    expect(renderMarkdown('[Play](<' + path + '>)')).toContain(
-      '<a href="' +
-        LOCAL_MEDIA_PREFIX +
-        encodeURIComponent(normalized) +
-        '" title="Open in your default player">Play</a>',
+    ['/tmp/Cover%23final.png', '/tmp/Cover%23final.png'],
+    ['reports/Brief.pdf', 'reports/Brief.pdf'],
+    ['./Build Artifacts/', './Build%20Artifacts/'],
+    ['README', 'README'],
+    ['%23draft.txt', '%23draft.txt'],
+    ['file:///C:/tools/setup.exe', 'file:///C:/tools/setup.exe'],
+  ])('renders %s as a delegated file link', (path, normalized) => {
+    expect(renderMarkdown('[Open](<' + path + '>)')).toContain(
+      '<a href="' + LOCAL_FILE_PREFIX + encodeURIComponent(normalized) + '">Open</a>',
     )
   })
 
-  it('preserves web media links and source line references', () => {
-    expect(renderMarkdown('[Play](https://example.com/demo.wav)')).toContain(
+  it('preserves web links, source line references and anchors', () => {
+    expect(renderMarkdown('[Web](https://example.com/demo.wav)')).toContain(
       'href="https://example.com/demo.wav" target="_blank"',
     )
     expect(renderMarkdown('[Source](src/player.ts:12)')).toContain('href="src/player.ts:12"')
     expect(renderMarkdown('[Source](<C:/src/player.ts:12>)')).toBe('<p><a>Source</a></p>')
+    expect(renderMarkdown('[Source](src/player.ts#L12-L15)')).toContain(
+      'href="src/player.ts#L12-L15"',
+    )
+    expect(renderMarkdown('[Section](#details)')).toContain('href="#details"')
   })
 
-  it.each([
-    'C:/tmp/setup.exe',
-    'file://host/share/demo.wav',
-    '//host/share/demo.wav',
-    'C:/tmp/demo.wav:12',
-  ])('keeps %s out of the media route', (path) =>
-    expect(renderMarkdown('[Open](<' + path + '>)')).not.toContain(LOCAL_MEDIA_PREFIX),
+  it.each(['file://host/share/brief.pdf', '//host/share/brief.pdf', 'C:/tmp/demo.wav:12'])(
+    'keeps %s out of the local-file route',
+    (path) => expect(renderMarkdown('[Open](<' + path + '>)')).not.toContain(LOCAL_FILE_PREFIX),
   )
 })

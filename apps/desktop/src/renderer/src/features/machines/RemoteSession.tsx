@@ -212,7 +212,7 @@ export function RemoteSession({
     return () => observer.disconnect()
   }, [activeView, scrollToLatest])
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col" data-remote-workspace="">
       <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-5 py-3">
         <div className="mr-auto min-w-0">
           <h1 className="truncate text-sm font-semibold">

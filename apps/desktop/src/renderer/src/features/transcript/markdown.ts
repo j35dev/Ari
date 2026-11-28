@@ -5,7 +5,7 @@ import remarkBreaks from 'remark-breaks'
 import remarkRehype from 'remark-rehype'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeStringify from 'rehype-stringify'
-import { isLocalMediaPath, LOCAL_MEDIA_PREFIX } from '../../../../shared/local-media'
+import { LOCAL_FILE_PREFIX, parseLocalFileLink } from '../../../../shared/local-file-link'
 
 /**
  * Markdown → safe HTML for transcript blocks. CommonMark + GFM (tables,
@@ -17,63 +17,17 @@ import { isLocalMediaPath, LOCAL_MEDIA_PREFIX } from '../../../../shared/local-m
  * agent names become links too; see {@linkcode localHtmlHref}.
  */
 
-/**
- * The marker a link to a local HTML file carries. It is an in-page fragment,
- * so it passes the sanitizer and cannot navigate the window; the click
- * interceptor reads the path back out and asks the main process to open it.
- */
-export const LOCAL_HTML_PREFIX = '#ari-html='
-
-/** A path or `file:` URL that names an HTML file, as an agent writes one. */
-const HTML_FILE = /^[^\s<>"|*]+\.html?(?:[#?][^\s]*)?$/i
-
-/**
- * The marker href for `target` when it names a local HTML file, else null.
- * `needsFolder` is for bare inline code: `index.html` on its own is usually
- * a mention, so only something that reads as a path becomes a link.
- */
-export function localHtmlHref(target: string, needsFolder = false): string | null {
+/** HTML paths in inline code are linked when the text names a file in a folder. */
+export function localHtmlHref(target: string): string | null {
   const text = target.trim()
-  if (!HTML_FILE.test(text) || /^(?:https?|mailto):/i.test(text)) return null
-  if (isNetworkPath(text)) return null
-  const local = /^file:/i.test(text)
-  if (!local && /^[a-z][a-z0-9+.-]{1,}:/i.test(text)) return null
-  if (needsFolder && !local && !/[\\/]/.test(text)) return null
-  return LOCAL_HTML_PREFIX + encodeURIComponent(text)
+  if (!/^[^<>"|*]+\.html?(?:[#?].*)?$/i.test(text) || !/[\\/]/.test(text)) return null
+  return localFileHref(/^file:/i.test(text) ? text : text.replace(/%/g, '%25'))
 }
 
-/**
- * `\\host\share\…`, `\\?\UNC\…` or a `file:` URL naming a host other than
- * this one. Opening one makes Windows send the user's NTLM hash to that host,
- * so it never becomes a link. Markdown targets arrive percent-encoded.
- */
-function isNetworkPath(text: string): boolean {
-  let decoded = text
-  try {
-    decoded = decodeURIComponent(text)
-  } catch {
-    // A stray `%` is part of the name.
-  }
-  return [text, decoded].some((value) => {
-    if (/^[\\/]{2}/.test(value)) return true
-    // `file:///C:/…` and `file://localhost/…` are local; `file://host/…`,
-    // `file:////host/…` and `file:\\host\…` are not.
-    const url = /^file:([\\/]*)([^\\/]*)/i.exec(value)
-    if (!url) return false
-    const slashes = url[1]!.length
-    return slashes >= 4 || (slashes === 2 && !/^(?:localhost|[a-z]:)?$/i.test(url[2]!))
-  })
-}
-
-/** Wrap absolute media targets before sanitizing hrefs, which removes drive-letter and file schemes. */
-function localMediaHref(target: string): string | null {
-  try {
-    const url = /^file:/i.test(target) ? new URL(target) : null
-    if (url?.hostname || !isLocalMediaPath(decodeURIComponent(url?.pathname ?? target))) return null
-    return LOCAL_MEDIA_PREFIX + encodeURIComponent(target)
-  } catch {
-    return null
-  }
+/** Use an inert fragment until a desktop click can dispatch the file action. */
+function localFileHref(target: string): string | null {
+  if (!parseLocalFileLink(target)) return null
+  return LOCAL_FILE_PREFIX + encodeURIComponent(target)
 }
 
 interface HastNode {
@@ -115,7 +69,7 @@ function textOf(node: HastNode & { value?: string }): string {
 }
 
 /**
- * Makes linked local HTML and media files openable before sanitizing hrefs.
+ * Makes local file and folder targets openable before sanitizing hrefs.
  * HTML paths written as inline code also become links.
  */
 function rehypeLocalFileLinks(): (tree: HastNode) => void {
@@ -125,22 +79,12 @@ function rehypeLocalFileLinks(): (tree: HastNode) => void {
       if (child.tagName === 'a') {
         const href = child.properties?.['href']
         if (typeof href !== 'string') return child
-        const media = localMediaHref(href)
-        if (media !== null) {
-          child.properties = {
-            ...child.properties,
-            href: media,
-            title: 'Open in your default player',
-          }
-        } else {
-          const html = localHtmlHref(href)
-          if (html !== null)
-            child.properties = { ...child.properties, href: html, title: 'Open in your browser' }
-        }
+        const file = localFileHref(href)
+        if (file !== null) child.properties = { ...child.properties, href: file }
         return child
       }
       if (child.tagName === 'code' && !insidePre && node.tagName !== 'a') {
-        const marker = localHtmlHref(textOf(child), true)
+        const marker = localHtmlHref(textOf(child))
         if (marker !== null)
           return {
             type: 'element',
