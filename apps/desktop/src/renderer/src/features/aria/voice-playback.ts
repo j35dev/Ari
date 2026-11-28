@@ -6,10 +6,13 @@ export interface VoiceAudio {
   volume?: number
 }
 
-/** Decoding is asynchronous, so check the generation both before and after it. */
+/** Decode in arrival order and schedule ready clips on the audio clock. */
 export class VoicePlayback {
   private context: AudioContext | null = null
-  private current: AudioBufferSourceNode | null = null
+  private sources = new Set<AudioBufferSourceNode>()
+  private ready = Promise.resolve()
+  private nextStart = 0
+  private abort = new AbortController()
   private generation = -1
   constructor(
     private readonly acknowledge: (id: number, generation: number, error?: string) => void,
@@ -21,9 +24,12 @@ export class VoicePlayback {
     this.halt()
   }
   private halt(): void {
-    const source = this.current
-    this.current = null
-    source?.stop()
+    this.abort.abort()
+    this.abort = new AbortController()
+    this.ready = Promise.resolve()
+    this.nextStart = 0
+    for (const source of this.sources) source.stop()
+    this.sources.clear()
   }
   async observe(frame: VoiceAudio): Promise<void> {
     if (frame.generation < this.generation) return
@@ -31,32 +37,52 @@ export class VoicePlayback {
       this.halt()
       this.generation = frame.generation
     }
-    if (frame.stop || !frame.audio || frame.id === undefined) return
+    const { audio, generation, id, volume } = frame
+    if (frame.stop || !audio || id === undefined) return
+    const signal = this.abort.signal
+    this.ready = this.ready.then(() => this.schedule(id, generation, audio, volume ?? 1, signal))
+    await this.ready
+  }
+  private async schedule(
+    id: number,
+    generation: number,
+    audio: Uint8Array,
+    volume: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (signal.aborted) return
     try {
-      this.context ??= this.create()
-      const data = new Uint8Array(frame.audio)
-      const buffer = await this.context.decodeAudioData(data.buffer)
-      if (frame.generation !== this.generation) return
-      await this.context.resume()
-      if (frame.generation !== this.generation) return
-      const source = this.context.createBufferSource()
+      const context = (this.context ??= this.create())
+      const buffer = await context.decodeAudioData(new Uint8Array(audio).buffer)
+      if (signal.aborted) return
+      if (context.state !== 'running') await context.resume()
+      if (signal.aborted) return
+      const source = context.createBufferSource()
       source.buffer = buffer
-      const gain = this.context.createGain()
-      gain.gain.value = frame.volume ?? 1
+      const gain = context.createGain()
+      gain.gain.value = volume
       source.connect(gain)
-      gain.connect(this.context.destination)
-      this.current = source
-      source.onended = () => {
+      gain.connect(context.destination)
+      const disconnect = () => {
         source.disconnect()
         gain.disconnect()
-        if (frame.generation !== this.generation || this.current !== source) return
-        this.current = null
-        this.acknowledge(frame.id!, frame.generation)
       }
-      source.start()
+      const start = Math.max(context.currentTime, this.nextStart)
+      try {
+        source.start(start)
+      } catch (error) {
+        disconnect()
+        throw error
+      }
+      this.sources.add(source)
+      this.nextStart = start + buffer.duration
+      source.onended = () => {
+        disconnect()
+        this.sources.delete(source)
+        if (!signal.aborted) this.acknowledge(id, generation)
+      }
     } catch {
-      if (frame.generation === this.generation)
-        this.acknowledge(frame.id, frame.generation, 'Playback failed')
+      if (!signal.aborted) this.acknowledge(id, generation, 'Playback failed')
     }
   }
   dispose(): void {

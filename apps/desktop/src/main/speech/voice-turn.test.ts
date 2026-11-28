@@ -28,6 +28,28 @@ it('speaks an authored final exactly once for the armed voice turn', () => {
   turn.observe(event('turn.settled', { turnId: 'turn', stopReason: 'completed' }))
   expect(speak).toHaveBeenCalledTimes(1)
 })
+it('waits for a complete spoken line when both words and delimiters arrive in fragments', () => {
+  const speak = vi.fn()
+  const turn = new VoiceTurn(speak, () => true)
+  turn.arm('aria', 'Run checks')
+  turn.observe(request)
+  const append = (text: string) =>
+    turn.observe(
+      event('assistant.parts.appended', { messageId: 'reply', parts: [{ type: 'text', text }] }),
+    )
+  append('<!-- aria:sp')
+  append('eak {"text":"The changes are re')
+  append('ady for your review.","tone":"warm"} --')
+  expect(speak).not.toHaveBeenCalled()
+  append('>')
+  expect(speak).toHaveBeenCalledExactlyOnceWith(
+    '<!-- aria:speak {"text":"The changes are ready for your review.","tone":"warm"} -->',
+    false,
+  )
+  append('\n\nWritten details.')
+  turn.observe(event('turn.settled', { turnId: 'turn', stopReason: 'completed' }))
+  expect(speak).toHaveBeenCalledTimes(1)
+})
 it('keeps typed messages progress background turns and interrupted replies quiet', () => {
   const speak = vi.fn()
   const turn = new VoiceTurn(speak, () => true)

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { condenseReply, readableReply, speechChunks, spokenLine, writtenReply } from './aria-voice'
+import {
+  condenseReply,
+  readableReply,
+  speechChunks,
+  spokenLine,
+  spokenReply,
+  writtenReply,
+} from './aria-voice'
 
 describe('Aria spoken replies', () => {
   it('extracts only a complete authored line while keeping the written reply separate', () => {
@@ -11,6 +18,16 @@ describe('Aria spoken replies', () => {
     )
     expect(spokenLine('<!-- aria:speak {broken} -->')).toBeNull()
     expect(spokenLine('<!-- aria:speak {"text":"`pnpm test`"} -->')).toBeNull()
+  })
+  it('accepts an optional supported tone and speaks older replies without it', () => {
+    const line = (tone?: string) =>
+      `<!-- aria:speak ${JSON.stringify({ text: 'Good news. The build passed.', tone })} -->`
+    expect(spokenReply(line('cheerful'))).toEqual({
+      text: 'Good news. The build passed.',
+      tone: 'cheerful',
+    })
+    expect(spokenReply(line('whisper'))).toEqual(spokenReply(line()))
+    expect(condenseReply(line('warm'))).toBe('Good news. The build passed.')
   })
   it('condenses real progress reports without speaking lists paths or IDs', () => {
     const reply =
@@ -36,13 +53,29 @@ describe('Aria spoken replies', () => {
     expect(condenseReply('```ts\nsecret()')).toBe('I put the details in the chat.')
     expect(condenseReply('| x |\n|---|\n|123|')).toBe('I put the details in the chat.')
   })
-  it('starts with the first clause and never loses a word when splitting', () => {
-    const text =
-      'The checks passed, and the changes are ready for you to review. Would you like me to continue?'
-    const chunks = speechChunks(text, 60)
-    expect(chunks[0]).toBe('The checks passed,')
-    expect(chunks.join(' ')).toBe(text)
-    expect(chunks.every((chunk) => chunk.length <= 60)).toBe(true)
+  it.each([
+    'The changes are ready for you to review.',
+    'The checks passed, and the changes are ready for you to review.',
+    'Dr. Perez asked, “Would you like to review the changes?”',
+  ])('keeps the first sentence intact: %s', (sentence) => {
+    expect(speechChunks(`${sentence} I can open the chat for you.`)).toEqual([
+      sentence,
+      'I can open the chat for you.',
+    ])
+  })
+  it('uses a clause boundary when a long sentence needs to be split', () => {
+    const first = 'The changes are ready to review,'
+    const second = 'and I can open the chat for you.'
+    expect(speechChunks(`${first} ${second}`, 45)).toEqual([first, second])
+  })
+  it('joins soft-wrapped text before adding spoken punctuation to paragraphs and list items', () => {
+    expect(
+      readableReply(
+        'The changes are ready\nfor your review.\n\n- I can open the chat\n  with the results\n- I can run the checks again',
+      ),
+    ).toBe(
+      'The changes are ready for your review. I can open the chat with the results. I can run the checks again.',
+    )
   })
   it('keeps decimals and domains in an outcome instead of cutting them into fragments', () => {
     const reply =

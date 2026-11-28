@@ -46,7 +46,7 @@ function fixture(cloud = false) {
     models: vi.fn(async () => [{ id: 'kokoro-82m-v1.0', installed: { path: '/models/kokoro' } }]),
   }
   const groq = {
-    speak: vi.fn(async (): Promise<Uint8Array> => {
+    speak: vi.fn<GroqSpeech['speak']>(async () => {
       throw new Error('Groq has no API key. Using local speech.')
     }),
   }
@@ -63,23 +63,36 @@ async function audioFrame(contents: { send: ReturnType<typeof vi.fn> }) {
   await vi.waitFor(() => expect(contents.send.mock.calls.some((call) => call[1]?.audio)).toBe(true))
   return contents.send.mock.calls.findLast((call) => call[1]?.audio)![1]
 }
-it('uses local audio and waits for playback acknowledgement without queueing another reply', async () => {
-  const { service, contents } = fixture()
-  const speaking = service.speak('The changes are ready.')
+it('synthesizes one complete opening sentence and waits for playback to finish', async () => {
+  const { service, contents, child } = fixture()
+  const text = 'The changes are ready for your review.'
+  const speaking = service.speak(text)
   const frame = await audioFrame(contents)
+  expect(child.postMessage.mock.calls.filter(([request]) => request.kind === 'speak')).toEqual([
+    [expect.objectContaining({ text })],
+  ])
   service.played(frame.id, frame.generation)
   await speaking
   expect(mock.duck).toHaveBeenLastCalledWith(expect.any(String), false)
 })
-it('falls back from missing Groq credentials and publishes a clear message', async () => {
-  const { service, contents, groq } = fixture(true)
+it('falls back from missing Groq credentials and sends plain speech to Kokoro', async () => {
+  const { service, contents, groq, child } = fixture(true)
   const notice = vi.fn()
   service.publish = notice
-  const speaking = service.speak('The changes are ready.')
+  const speaking = service.speak(
+    '<!-- aria:speak {"text":"The changes are ready.","tone":"cheerful"} -->',
+  )
   const frame = await audioFrame(contents)
   service.played(frame.id, frame.generation)
   await speaking
-  expect(groq.speak).toHaveBeenCalledOnce()
+  expect(groq.speak).toHaveBeenCalledExactlyOnceWith(
+    '[cheerful] The changes are ready.',
+    expect.any(String),
+    expect.any(AbortSignal),
+  )
+  expect(child.postMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ kind: 'speak', text: 'The changes are ready.' }),
+  )
   expect(notice).toHaveBeenCalledWith(
     expect.objectContaining({ error: 'Groq has no API key. Using local speech.' }),
   )
@@ -104,18 +117,39 @@ it('stops speech and unloads the worker when Aria is disabled', async () => {
   expect(child.kill).toHaveBeenCalledOnce()
   expect((await service.status()).loaded).toBe(false)
 })
-it('keeps pronunciation-expanded Groq requests under its limit and streams without local fallback', async () => {
+it('fits expanded pronunciation within the Groq limit and directs only the opening', async () => {
   const { service, contents, groq, child } = fixture(true)
   groq.speak.mockImplementation(async () => new Uint8Array([1]))
   contents.send.mockImplementation((_channel, frame) => {
     if (frame.audio) queueMicrotask(() => service.played(frame.id, frame.generation))
   })
-  const line = 'Aria checked 1234567890 tests and 1234567890 files, and the PR and CLI are ready.'
-  await service.speak(`<!-- aria:speak ${JSON.stringify({ text: line })} -->`)
-  expect(groq.speak.mock.calls.length).toBeGreaterThan(1)
-  for (const call of groq.speak.mock.calls as unknown as [string][])
-    expect(call[0].length).toBeLessThanOrEqual(200)
+  const line =
+    'Good news. Aria checked 1234567 tests and 2345678 files, and the PR lists 3456789 changes. Would you like me to open the results?'
+  await service.speak(`<!-- aria:speak ${JSON.stringify({ text: line, tone: 'warm' })} -->`)
+  const inputs = groq.speak.mock.calls.map(([text]) => text)
+  expect(inputs.length).toBeGreaterThan(3)
+  expect(inputs[0]).toBe('[warm] Good news.')
+  expect(inputs[1]).toMatch(/^Ah ree uh/)
+  expect(inputs.slice(1).every((input) => !input.includes('[warm]'))).toBe(true)
+  expect(inputs.at(-1)).toBe('Would you like me to open the results?')
+  expect(inputs.every((input) => input.length <= 200)).toBe(true)
   expect(child.postMessage.mock.calls.some(([request]) => request.kind === 'speak')).toBe(false)
+})
+
+it('keeps a sentence intact when it fits the Groq limit without the optional tone', async () => {
+  const { service, contents, groq } = fixture(true)
+  groq.speak.mockImplementation(async () => new Uint8Array([1]))
+  contents.send.mockImplementation((_channel, frame) => {
+    if (frame.audio) queueMicrotask(() => service.played(frame.id, frame.generation))
+  })
+  const text =
+    "I checked the build and the update is ready for you to try, so you can open the desktop app to review the changes and send me your feedback when you've had a chance to see how it fits your work."
+  await service.speak(`<!-- aria:speak ${JSON.stringify({ text, tone: 'warm' })} -->`)
+  expect(groq.speak).toHaveBeenCalledExactlyOnceWith(
+    text,
+    expect.any(String),
+    expect.any(AbortSignal),
+  )
 })
 
 it('Read aloud streams the written details, not only the authored automatic summary', async () => {
@@ -161,29 +195,34 @@ it('clears an old playback error on retry and publishes completion after success
   expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'complete' }))
 })
 
-it('says a following passage after the one playing instead of cutting it off', async () => {
+it('queues a following passage before playback ends and bounds outstanding audio', async () => {
   const { service, contents } = fixture()
   const audioFrames = () => contents.send.mock.calls.filter((call) => call[1]?.audio)
   const first = service.speak('Finding the sessions.')
-  const second = service.speak('Four sessions are gone.', { follow: true })
-  const frame = await audioFrame(contents)
-  // The second passage has not started: the first is still playing.
-  expect(audioFrames()).toHaveLength(1)
+  const second = service.speak('Four sessions are gone. Would you like the details?', {
+    follow: true,
+  })
+  await vi.waitFor(() => expect(audioFrames()).toHaveLength(2))
+  const frame = audioFrames()[0]![1]
+  const next = audioFrames()[1]![1]
+  expect(next.generation).toBe(frame.generation)
   service.played(frame.id, frame.generation)
   await first
-  await vi.waitFor(() => expect(audioFrames()).toHaveLength(2))
-  const next = audioFrames()[1]![1]
-  // Same generation: it followed, it did not interrupt.
-  expect(next.generation).toBe(frame.generation)
+  await vi.waitFor(() => expect(audioFrames()).toHaveLength(3))
+  const last = audioFrames()[2]![1]
   service.played(next.id, next.generation)
+  service.played(last.id, last.generation)
   await second
 })
 it('drops what was queued when speech is stopped', async () => {
   const { service, contents } = fixture()
   const first = service.speak('Finding the sessions.')
-  const second = service.speak('Four sessions are gone.', { follow: true })
-  await audioFrame(contents)
+  const second = service.speak('Four sessions are gone. Would you like the details?', {
+    follow: true,
+  })
+  const count = () => contents.send.mock.calls.filter((call) => call[1]?.audio).length
+  await vi.waitFor(() => expect(count()).toBe(2))
   service.stop()
   await Promise.all([first, second])
-  expect(contents.send.mock.calls.filter((call) => call[1]?.audio)).toHaveLength(1)
+  expect(count()).toBe(2)
 })

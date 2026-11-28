@@ -2,19 +2,31 @@
 const marker = /<!--\s*aria:speak\s+(\{[^\n]*\})\s*-->/g
 const MAX_SPOKEN_CHARACTERS = 6000
 
-export function spokenLine(reply: string): string | null {
+export interface SpokenReply {
+  text: string
+  tone?: 'warm' | 'cheerful'
+}
+
+export function spokenReply(reply: string): SpokenReply | null {
   for (const match of reply.replace(/```[^]*?(?:```|$)|~~~[^]*?(?:~~~|$)/g, '').matchAll(marker)) {
     try {
-      const value = JSON.parse(match[1]!) as { text?: unknown }
+      const value = JSON.parse(match[1]!) as { text?: unknown; tone?: unknown }
       if (typeof value.text !== 'string' || value.text.length > MAX_SPOKEN_CHARACTERS) continue
       const line = value.text.trim()
       if (!line || /[`\n\r]|\|.*\||<|>/.test(line)) continue
-      return plain(line)
+      const text = plain(line)
+      if (!text) continue
+      const tone = value.tone
+      return tone === 'warm' || tone === 'cheerful' ? { text, tone } : { text }
     } catch {
       /* An incomplete streaming marker is not a spoken reply. */
     }
   }
   return null
+}
+
+export function spokenLine(reply: string): string | null {
+  return spokenReply(reply)?.text ?? null
 }
 
 export function writtenReply(reply: string): string {
@@ -25,8 +37,10 @@ export function writtenReply(reply: string): string {
 }
 
 function sentences(text: string): string[] {
-  // Decimal points and domains are part of the sentence, not sentence boundaries.
-  return (text.match(/[\s\S]+?(?:[.!?]+(?=\s|$)|$)/g) ?? []).map((s) => s.trim()).filter(Boolean)
+  // A period in a title, decimal or domain can belong inside the sentence.
+  const boundary =
+    /[\s\S]+?(?:(?:(?<!\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|e\.g|i\.e))\.|[!?])[.!?]*['"”’)\]]*(?=\s|$)|$)/gi
+  return (text.match(boundary) ?? []).map((sentence) => sentence.trim()).filter(Boolean)
 }
 
 function plain(text: string): string {
@@ -48,29 +62,41 @@ function plain(text: string): string {
 
 function speechContent(reply: string): { text: string; structured: boolean } {
   let structured = false
-  const text = writtenReply(reply)
+  const lines = writtenReply(reply)
     .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, () => {
       structured = true
-      return '\n'
-    })
-    .split(/\r?\n/)
-    .flatMap((line) => {
-      if (/^\s*\|/.test(line) || /\|.*\|/.test(line) || /^\s*See \[/.test(line)) {
-        structured = true
-        return []
-      }
-      // Headings label the written layout; list items often carry the answer.
-      if (/^\s*#{1,6}\s/.test(line)) return []
-      const item = line.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+|>\s*)/, '').trim()
-      if (!item) return []
-      return [/[.!?][*_'"”’]*$/.test(item) ? item : `${item}.`]
-    })
-    .join('\n')
-    .replace(/`[^`]*`/g, () => {
-      structured = true
-      return 'the details in the chat'
+      return '\n\n'
     })
     .replace(/<!--[^]*?-->/g, '')
+    .split(/\r?\n/)
+  const paragraphs: string[] = []
+  let paragraph = ''
+  const flush = () => {
+    if (paragraph)
+      paragraphs.push(/[.!?][*_'"”’)\]]*$/.test(paragraph) ? paragraph : `${paragraph}.`)
+    paragraph = ''
+  }
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (/^\||\|.*\||^See \[/.test(line)) {
+      structured = true
+      flush()
+      continue
+    }
+    if (!line || /^#{1,6}\s/.test(line)) {
+      flush()
+      continue
+    }
+    const item = /^(?:[-*+]\s+|\d+[.)]\s+|>\s*)(.*)$/.exec(line)
+    if (item) flush()
+    const text = item?.[1] ?? line
+    paragraph = paragraph ? `${paragraph} ${text}` : text
+  }
+  flush()
+  const text = paragraphs.join(' ').replace(/`[^`]*`/g, () => {
+    structured = true
+    return 'the details in the chat'
+  })
   return { text: plain(text), structured }
 }
 
@@ -104,7 +130,7 @@ export function condenseReply(reply: string): string {
   const all = sentences(text)
   const question = all.findLast(
     (s) =>
-      s.endsWith('?') &&
+      /\?['"”’)\]]*$/.test(s) &&
       s.length <= 400 &&
       /\b(?:you|your|want|should|shall|can I|do I|may I|which|would)\b/i.test(s),
   )
@@ -118,44 +144,30 @@ export function condenseReply(reply: string): string {
   return [summary, question].filter(Boolean).join(' ')
 }
 
-/** Start with a short clause; later requests remain sentence-sized and provider-bounded. */
+/** Keep each sentence intact whenever the provider can take it in one request. */
 export function speechChunks(
   text: string,
   limit = 200,
   length = (value: string) => value.length,
 ): string[] {
   const result: string[] = []
-  const append = (part: string) => {
+  for (let part of sentences(text)) {
     while (length(part) > limit) {
-      let chunk = ''
-      for (const word of part.split(/\s+/)) {
-        const candidate = chunk ? `${chunk} ${word}` : word
-        if (length(candidate) > limit) break
-        chunk = candidate
+      let end = 0
+      let clause = 0
+      for (const word of part.matchAll(/\S+/g)) {
+        const boundary = word.index + word[0].length
+        if (length(part.slice(0, boundary)) > limit) break
+        end = boundary
+        if (/[,;:—–]$/.test(word[0])) clause = end
       }
-      if (!chunk) throw new Error('A spoken word is too long.')
-      result.push(chunk)
-      part = part.slice(chunk.length).trim()
+      if (!end) throw new Error('A spoken word is too long.')
+      const cut =
+        clause && (clause >= end / 2 || length(part.slice(clause).trim()) <= limit) ? clause : end
+      result.push(part.slice(0, cut))
+      part = part.slice(cut).trim()
     }
     if (part) result.push(part)
-  }
-  for (const sentence of sentences(text)) {
-    let rest = sentence
-    if (!result.length) {
-      const comma = rest.indexOf(',')
-      const words = rest.split(/\s+/)
-      const split =
-        comma > 0 && comma < 80
-          ? comma + 1
-          : words.length > 5
-            ? words.slice(0, 4).join(' ').length
-            : 0
-      if (split) {
-        append(rest.slice(0, split).trim())
-        rest = rest.slice(split).trim()
-      }
-    }
-    append(rest)
   }
   return result
 }
