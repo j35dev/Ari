@@ -73,6 +73,16 @@ it('cancels instead of sending text after the owning capture was invalidated', a
     mock.children[0]!.postMessage.mock.calls.some(([request]) => request.kind === 'insert'),
   ).toBe(false)
 })
+it('does not post insertion if the capture was cancelled during the worker handoff', async () => {
+  const target = await service.capture('old')
+  let current = true
+  const pending = target.insert('must not insert', () => current)
+  current = false
+  await expect(pending).rejects.toThrow('target changed')
+  expect(mock.children[0]!.postMessage.mock.calls.map(([request]) => request.kind)).toEqual([
+    'capture',
+  ])
+})
 it('rejects every pending operation when the native process exits and can restart', async () => {
   await service.prepare()
   mock.automatic = false

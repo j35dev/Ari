@@ -44,7 +44,7 @@ import { createPasteId, decidePasteFile } from './paste-as-file'
 import { useDrafts } from './use-drafts'
 import { SpeechButton, type SpeechState } from './SpeechButton'
 import { roundButton } from './round-button'
-import { captureTextTarget } from '../speech/target'
+import { captureTextTarget, detachTextTarget } from '../speech/target'
 import {
   useSessionDraftIntent,
   updateSessionDraftIntent,
@@ -105,6 +105,8 @@ export interface QueuedMessageView {
 }
 
 export interface ComposerProps {
+  /** The destination can change while a project draft keeps the same editor. */
+  dictationTargetKey?: string
   /** Announces a mounted, enabled editor; the owner decides whether to focus it. */
   onReady?: (input: HTMLTextAreaElement) => void
   /** Called with the message text and pending image files when the user sends. */
@@ -236,6 +238,7 @@ export function Composer({
   disabled = false,
   seed,
   sessionId,
+  dictationTargetKey,
   above,
   attentionRequired = false,
   centered = false,
@@ -265,6 +268,12 @@ export function Composer({
   const [stashAnchor, setStashAnchor] = useState<HTMLDivElement | null>(null)
   const [stashedPulse, setStashedPulse] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const input = textareaRef.current
+    return () => {
+      if (input) detachTextTarget(input)
+    }
+  }, [sessionId, dictationTargetKey, disabled, remote])
   useEffect(() => {
     const input = textareaRef.current
     if (onReady && input && !disabled) onReady(input)
@@ -1348,10 +1357,10 @@ export function Composer({
             {!remote ? (
               <SpeechButton
                 key={sessionId ?? ''}
-                captureTarget={() => {
+                captureTarget={(onFocusLost) => {
                   const input = textareaRef.current
                   input?.focus()
-                  return captureTextTarget(input)
+                  return captureTextTarget(input, onFocusLost)
                 }}
                 disabled={disabled}
                 statusSlot={dictationSlot}

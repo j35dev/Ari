@@ -802,8 +802,7 @@ it.each(['escape', 'disable', 'empty', 'unavailable'])(
       { id: 1, text: reason === 'empty' ? '  ' : 'draft' },
     )
     expect(invoke.mock.calls.map(([method]) => method)).toEqual(['speech.status'])
-    // An unavailable target is retried once at the current focus, which also fails here.
-    expect(insert).toHaveBeenCalledTimes(reason === 'unavailable' ? 2 : 0)
+    expect(insert).toHaveBeenCalledTimes(reason === 'unavailable' ? 1 : 0)
     expect(mock.copy).toHaveBeenCalledTimes(reason === 'unavailable' ? 1 : 0)
     if (reason === 'unavailable') {
       expect(mock.copy).toHaveBeenCalledWith('draft')
@@ -811,44 +810,62 @@ it.each(['escape', 'disable', 'empty', 'unavailable'])(
         'ari:ariaWidget.state',
         expect.objectContaining({
           phase: 'error',
-          text: 'Copied to clipboard. Press Ctrl+V to paste.',
+          text: 'Couldn’t insert. Dictation copied to clipboard.',
         }),
       )
     }
   },
 )
 
-it('copies every result and types it where the user moved focus during dictation', async () => {
-  const first = vi.fn(async () => {
-    throw new Error('The dictation target changed. Dictate again in the intended field.')
-  })
-  const second = vi.fn(async () => undefined)
-  const capture = vi
-    .fn()
-    .mockResolvedValueOnce({ insert: first, cancel: vi.fn() })
-    .mockResolvedValueOnce({ insert: second, cancel: vi.fn() })
-  widget = new AriaWidget({
-    invoke: async () => ({ ready: true }),
-    openSettings: vi.fn(),
-    captureTarget: capture,
-  })
-  await widget.configure(configured)
-  mock.keys.get('keydown')!(generalKey())
-  await vi.advanceTimersByTimeAsync(0)
-  mock.keys.get('keyup')!(generalKey())
-  await mock.handlers.get('ari:ariaWidget.complete')!(
-    { sender: mock.windows[0]!.webContents },
-    { id: 1, text: 'moved draft' },
-  )
-  expect(mock.copy).toHaveBeenCalledExactlyOnceWith('moved draft')
-  expect(capture).toHaveBeenCalledTimes(2)
-  expect(capture.mock.calls[1]![0]).not.toBe(capture.mock.calls[0]![0])
-  expect(second).toHaveBeenCalledWith('moved draft', expect.any(Function))
-  expect(mock.windows[0]!.webContents.send).toHaveBeenLastCalledWith(
-    'ari:ariaWidget.state',
-    expect.objectContaining({ phase: 'sent' }),
-  )
-})
+it.each([false, true])(
+  'keeps the shortcut target pinned and can dictate again after it changes (navigation: %s)',
+  async (navigate) => {
+    const first = vi.fn(async () => {
+      throw new Error('The dictation target changed. Dictate again in the intended field.')
+    })
+    const second = vi.fn(async () => undefined)
+    const capture = vi
+      .fn()
+      .mockResolvedValueOnce({ insert: first, cancel: vi.fn() })
+      .mockResolvedValueOnce({ insert: second, cancel: vi.fn() })
+    const contents = Object.assign(new EventEmitter(), { isDestroyed: () => false })
+    const main = { webContents: contents } as unknown as BrowserWindow
+    widget = new AriaWidget({
+      invoke: async () => ({ ready: true }),
+      openSettings: vi.fn(),
+      captureTarget: capture,
+      mainWindow: () => main,
+    })
+    await widget.configure(configured)
+    mock.keys.get('keydown')!(generalKey())
+    await vi.advanceTimersByTimeAsync(0)
+    mock.keys.get('keyup')!(generalKey())
+    if (navigate) contents.emit('did-navigate')
+    const complete = mock.handlers.get('ari:ariaWidget.complete')!
+    const sender = mock.windows[0]!.webContents
+    await complete({ sender }, { id: 1, text: 'moved draft' })
+    expect(mock.copy).toHaveBeenCalledExactlyOnceWith('moved draft')
+    expect(capture).toHaveBeenCalledOnce()
+    expect(second).not.toHaveBeenCalled()
+    expect(sender.send).toHaveBeenLastCalledWith(
+      'ari:ariaWidget.state',
+      expect.objectContaining({ phase: 'error' }),
+    )
+    mock.keys.get('keydown')!(generalKey())
+    await vi.advanceTimersByTimeAsync(0)
+    mock.keys.get('keyup')!(generalKey())
+    await complete({ sender }, { id: 1, text: 'late duplicate' })
+    await complete({ sender }, { id: 2, text: 'fresh dictation' })
+    expect(capture).toHaveBeenCalledTimes(2)
+    expect(capture.mock.calls[1]![0]).not.toBe(capture.mock.calls[0]![0])
+    expect(second).toHaveBeenCalledExactlyOnceWith('fresh dictation', expect.any(Function))
+    expect(mock.copy).toHaveBeenCalledOnce()
+    expect(mock.windows[0]!.webContents.send).toHaveBeenLastCalledWith(
+      'ari:ariaWidget.state',
+      expect.objectContaining({ phase: 'sent' }),
+    )
+  },
+)
 
 it('reserves capture through transcription and blocks both shortcuts while a composer owns it', async () => {
   const contents = { on: vi.fn(), removeListener: vi.fn(), isDestroyed: () => false }
@@ -877,7 +894,7 @@ it('reserves capture through transcription and blocks both shortcuts while a com
   expect(() => acquire({ sender: contents })).toThrow('Another dictation')
 })
 
-it('does not retarget a global insertion that was cancelled while pending', async () => {
+it('does not copy a global insertion that was cancelled while pending', async () => {
   let reject!: (reason: Error) => void
   const insert = vi.fn(
     () =>
@@ -904,6 +921,7 @@ it('does not retarget a global insertion that was cancelled while pending', asyn
   reject(new Error('The dictation target changed.'))
   await pending
   expect(insert).toHaveBeenCalledOnce()
+  expect(mock.copy).not.toHaveBeenCalled()
   expect(invoke.mock.calls.map(([method]) => method)).toEqual(['speech.status'])
 })
 
@@ -1028,8 +1046,7 @@ it.each(['complete', 'transcription-error', 'cancel', 'stale-target', 'dispose']
     expect(mock.ducking).toHaveBeenLastCalledWith(expect.any(String), false)
     expect(cancel).toHaveBeenCalledOnce()
     expect(invoke.mock.calls.map(([method]) => method)).toEqual(['speech.status'])
-    // A stale target is retried once at the current focus.
-    expect(insert).toHaveBeenCalledTimes({ complete: 1, 'stale-target': 2 }[outcome] ?? 0)
+    expect(insert).toHaveBeenCalledTimes({ complete: 1, 'stale-target': 1 }[outcome] ?? 0)
     if (outcome === 'dispose') {
       expect(mock.handlers.has('ari:speechCapture.acquire')).toBe(false)
       expect(vi.getTimerCount()).toBe(0)

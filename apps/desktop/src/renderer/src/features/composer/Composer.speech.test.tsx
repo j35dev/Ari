@@ -1,5 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { act, fireEvent, render as renderView, screen, waitFor } from '@testing-library/react'
+import { Activity } from 'react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { ToastProvider } from '@ari/ui/toast'
+import { DictationRecoveryProvider } from '../speech/DictationRecovery'
 import { Composer } from './Composer'
 import { dropDraftTextMemory } from './use-drafts'
 import { finalizeDictation } from '../../../../shared/dictation-format'
@@ -9,6 +12,7 @@ const mock = vi.hoisted(() => ({
   stop: vi.fn(),
   cancel: vi.fn(),
   invoke: vi.fn(),
+  copy: vi.fn(),
 }))
 vi.mock('../speech/useSpeech', () => ({ useSpeech: () => ({ status: { ready: true } }) }))
 vi.mock('../speech/recorder', () => ({ startRecording: mock.record }))
@@ -22,11 +26,28 @@ beforeEach(() => {
   mock.stop.mockReset().mockResolvedValue(new Float32Array([0.1]))
   mock.cancel.mockReset()
   mock.invoke.mockReset().mockResolvedValue({ text: 'dictated' })
+  mock.copy.mockReset().mockResolvedValue(undefined)
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: mock.copy },
+  })
 })
+afterEach(() => Reflect.deleteProperty(navigator, 'clipboard'))
+
+function render(view: React.ReactElement) {
+  return renderView(view, {
+    wrapper: ({ children }) => (
+      <ToastProvider>
+        <DictationRecoveryProvider>{children}</DictationRecoveryProvider>
+      </ToastProvider>
+    ),
+  })
+}
+
 async function begin() {
-  const input = screen.getByLabelText('Message') as HTMLTextAreaElement
+  const input = screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement
   fireEvent.change(input, { target: { value: 'before OLD after' } })
-  input.focus()
+  act(() => input.focus())
   input.setSelectionRange(7, 10)
   fireEvent.click(screen.getByRole('button', { name: 'Dictate a message' }))
   await screen.findByRole('button', { name: 'Stop dictation' })
@@ -61,7 +82,59 @@ it('keeps a later session and its draft untouched when transcription finishes', 
   view.rerender(<Composer sessionId="session-two" onSend={vi.fn()} />)
   await act(async () => resolve({ text: 'old transcript' }))
   expect(screen.getByLabelText('Message')).toHaveValue('')
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy text' }))
+  expect(mock.copy).toHaveBeenCalledExactlyOnceWith('old transcript')
 })
+it.each(['recording', 'transcribing'] as const)(
+  'lets the same composer dictate again after switching away while %s',
+  async (phase) => {
+    let finish!: (result: { text: string }) => void
+    mock.invoke.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const onSend = vi.fn()
+    const chats = (away: boolean) => (
+      <>
+        <Activity mode={away ? 'hidden' : 'visible'}>
+          <Composer sessionId="session-one" onSend={onSend} />
+        </Activity>
+        <Activity mode={away ? 'visible' : 'hidden'}>
+          <Composer sessionId="session-two" onSend={onSend} />
+        </Activity>
+      </>
+    )
+    const view = render(chats(false))
+    const input = await begin()
+    if (phase === 'transcribing') {
+      fireEvent.keyDown(window, { key: 'Enter' })
+      await waitFor(() => expect(mock.invoke).toHaveBeenCalledTimes(1))
+    }
+    view.rerender(chats(true))
+    const other = screen.getByRole('textbox', { name: 'Message' })
+    fireEvent.change(other, { target: { value: 'other draft' } })
+    act(() => other.focus())
+    view.rerender(chats(false))
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBe(input)
+    expect(screen.getByRole('button', { name: 'Dictate a message' })).toBeEnabled()
+    act(() => input.focus())
+    input.setSelectionRange(7, 10)
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate a message' }))
+    await screen.findByRole('button', { name: 'Stop dictation' })
+    await waitFor(() => expect(mock.invoke).toHaveBeenCalledTimes(1))
+    await act(async () => finish({ text: 'earlier transcript' }))
+    expect(input).toHaveValue('before OLD after')
+    expect(other).toHaveValue('other draft')
+    expect(screen.getByRole('button', { name: 'Stop dictation' })).toBeEnabled()
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(input).toHaveValue('before dictated after'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy text' }))
+    expect(mock.copy).toHaveBeenCalledExactlyOnceWith('earlier transcript')
+    expect(onSend).not.toHaveBeenCalled()
+  },
+)
 it('hands the control row to the dictation while it records and takes it back after', async () => {
   const { container } = render(
     <Composer
@@ -117,13 +190,17 @@ it('says it is transcribing between the last word and the inserted text', async 
   expect(screen.queryByText('Transcribing')).not.toBeInTheDocument()
   expect(shell).not.toHaveAttribute('data-dictation')
 })
-it('rejects changed selection and explains why the draft was left alone', async () => {
+it('keeps a result when the caret changes and accepts a new dictation at that caret', async () => {
   render(<Composer sessionId="session-one" onSend={vi.fn()} />)
   const input = await begin()
   input.setSelectionRange(0, 0)
   fireEvent.keyDown(window, { key: 'Enter' })
-  await screen.findByRole('alert')
+  await screen.findByText('Dictation kept for review')
   expect(input.value).toBe('before OLD after')
+  fireEvent.click(screen.getByRole('button', { name: 'Dictate a message' }))
+  await screen.findByRole('button', { name: 'Stop dictation' })
+  fireEvent.keyDown(window, { key: 'Enter' })
+  await waitFor(() => expect(input.value).toBe('dictated before OLD after'))
 })
 
 it('inserts formatted paragraphs into the actual composer, then appends repeated dictation once at the cursor', async () => {
@@ -170,7 +247,23 @@ it('preserves manual edits during transcription and keeps the full formatted res
   const text = 'Please keep useSpeech.\n\n1. Check the logs.\n2. Run the tests.'
   await act(async () => finish({ text }))
   expect(input.value).toBe('my manual edit')
-  fireEvent.click(screen.getByText('Dictated text kept for review'))
-  expect(screen.getByLabelText('Uninserted dictated text')).toHaveValue(text)
-  expect(screen.getByRole('alert')).toHaveTextContent('target changed')
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy text' }))
+  expect(mock.copy).toHaveBeenCalledExactlyOnceWith(text)
+})
+
+it('keeps dictation for review when the project checkout changes without replacing the draft', async () => {
+  const send = vi.fn()
+  const view = render(
+    <Composer sessionId="project-draft:one" dictationTargetKey="checkout-a" onSend={send} />,
+  )
+  const input = await begin()
+  view.rerender(
+    <Composer sessionId="project-draft:one" dictationTargetKey="checkout-b" onSend={send} />,
+  )
+  const copy = await screen.findByRole('button', { name: 'Copy text' })
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBe(input)
+  expect(input).toHaveValue('before OLD after')
+  expect(screen.getByRole('button', { name: 'Dictate a message' })).toBeEnabled()
+  fireEvent.click(copy)
+  expect(mock.copy).toHaveBeenCalledExactlyOnceWith('dictated')
 })

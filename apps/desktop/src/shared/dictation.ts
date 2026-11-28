@@ -4,6 +4,6 @@ export interface DictationTarget {
 }
 
 export interface DictationBridge {
-  acquire(): Promise<string>
+  acquire(token?: string): Promise<string>
   release(token: string): Promise<void>
 }

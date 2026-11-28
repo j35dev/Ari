@@ -57,14 +57,14 @@ it('records with a ready model, stops on Enter, and inserts the transcript', asy
   await waitFor(() => expect(insert).toHaveBeenCalledWith('Dictated text'))
   expect(mocks.invoke).toHaveBeenCalledWith('speech.transcribe', { pcm: new Float32Array([0.1]) })
 })
-it('cancels without transcription on unmount', async () => {
+it('stops the microphone and transcribes a recording when its composer unmounts', async () => {
   mocks.ready = true
   const view = render(<SpeechButton captureTarget={() => ({ cancel() {}, async insert() {} })} />)
   fireEvent.click(screen.getByRole('button'))
   await screen.findByRole('button', { name: 'Stop dictation' })
   view.unmount()
-  expect(mocks.cancel).toHaveBeenCalledOnce()
-  expect(mocks.invoke).not.toHaveBeenCalled()
+  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledOnce())
+  expect(mocks.stop).toHaveBeenCalledOnce()
 })
 
 it('cancels acquisition on Escape and never inserts a late recording', async () => {
@@ -92,7 +92,46 @@ it('cancels acquisition on Escape and never inserts a late recording', async () 
   expect(insert).not.toHaveBeenCalled()
 })
 
-it('consumes Enter during transcription and discards the result after focus loss', async () => {
+it('releases a pending lease before the reply and leaves a new recording alone when it arrives', async () => {
+  mocks.ready = true
+  const capture = new CaptureLease()
+  let resolveFirst!: () => void
+  const acquire = vi
+    .fn(async (token?: string) => capture.acquire(token))
+    .mockImplementationOnce((token) => {
+      const held = capture.acquire(token)
+      return new Promise((resolve) => {
+        resolveFirst = () => resolve(held)
+      })
+    })
+  const release = vi.fn(async (token: string) => capture.release(token))
+  const previous = window.ari
+  window.ari = {
+    invoke: async () => undefined,
+    subscribe: () => () => undefined,
+    dictation: { acquire, release },
+  }
+  try {
+    const insert = vi.fn()
+    render(<SpeechButton captureTarget={() => ({ insert, cancel() {} })} />)
+    fireEvent.click(screen.getByRole('button'))
+    expect(capture.busy).toBe(true)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(capture.busy).toBe(false)
+    fireEvent.click(screen.getByRole('button'))
+    await screen.findByRole('button', { name: 'Stop dictation' })
+    await act(async () => resolveFirst())
+    expect(capture.busy).toBe(true)
+    expect(mocks.start).toHaveBeenCalledOnce()
+    fireEvent.keyDown(window, { key: 'Enter' })
+    await waitFor(() => expect(capture.busy).toBe(false))
+    expect(insert).toHaveBeenCalledOnce()
+  } finally {
+    window.ari = previous
+  }
+})
+
+it('consumes Enter during transcription and releases the composer when it loses focus', async () => {
   mocks.ready = true
   let resolve!: (result: { text: string }) => void
   mocks.invoke.mockImplementation(
@@ -189,7 +228,7 @@ it('cancels with Escape and discards the recording', async () => {
   expect(screen.getByRole('button', { name: 'Dictate a message' })).toBeEnabled()
 })
 
-it('does not start transcription if unmounted while the recording is stopping', async () => {
+it('does not start transcription if cancelled while the recording is stopping', async () => {
   mocks.ready = true
   let finishStop!: (pcm: Float32Array) => void
   mocks.stop.mockImplementation(
@@ -198,10 +237,10 @@ it('does not start transcription if unmounted while the recording is stopping', 
         finishStop = resolve
       }),
   )
-  const view = render(<SpeechButton captureTarget={() => ({ cancel() {}, async insert() {} })} />)
+  render(<SpeechButton captureTarget={() => ({ cancel() {}, async insert() {} })} />)
   await act(async () => fireEvent.click(screen.getByRole('button')))
   fireEvent.keyDown(window, { key: 'Enter' })
-  view.unmount()
+  fireEvent.keyDown(window, { key: 'Escape' })
   await act(async () => finishStop(new Float32Array([0.1])))
   expect(mocks.invoke).not.toHaveBeenCalled()
 })
@@ -282,7 +321,7 @@ it.each(['stop', 'cancel', 'failure', 'capture-error', 'stale', 'unmount'])(
     mocks.ready = true
     vi.useFakeTimers()
     const capture = new CaptureLease()
-    const acquire = vi.fn(async () => capture.acquire())
+    const acquire = vi.fn(async (token?: string) => capture.acquire(token))
     const release = vi.fn(async (token: string) => capture.release(token))
     const previous = window.ari
     window.ari = {

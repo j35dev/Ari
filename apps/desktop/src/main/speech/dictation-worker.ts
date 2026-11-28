@@ -32,7 +32,10 @@ try {
                   () => targets.get(request.target) === target,
                 )
               } finally {
-                targets.delete(request.target)
+                if (targets.get(request.target) === target) {
+                  targets.delete(request.target)
+                  target.cancel()
+                }
               }
             } else throw new Error('Unknown dictation operation.')
           }

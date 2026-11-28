@@ -29,10 +29,16 @@ export async function captureDictationTarget(
             .catch(() => undefined)
       },
       async insert(text, current = () => true) {
-        if (!current() || main.isDestroyed() || !main.isFocused() || contents.isDestroyed())
+        if (
+          !current() ||
+          main.isDestroyed() ||
+          !main.isFocused() ||
+          contents.isDestroyed() ||
+          !contents.isFocused()
+        )
           throw new Error('The dictation target is no longer focused.')
         await contents.executeJavaScript(
-          `window.ariDictation.insert(${JSON.stringify(id)}, ${JSON.stringify(text)})`,
+          `if (!window.ariDictation) throw new Error('The dictation target is no longer available.'); window.ariDictation.insert(${JSON.stringify(id)}, ${JSON.stringify(text)})`,
         )
       },
     }

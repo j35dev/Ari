@@ -67,8 +67,10 @@ export class WindowsDictationService {
     target: string,
     text?: string,
     window?: string | null,
+    current = () => true,
   ): Promise<unknown> {
     await this.prepare()
+    if (!current()) throw new Error('The dictation target changed.')
     const child = this.child
     if (!child) throw new Error('Windows dictation stopped. Try again.')
     return new Promise((resolve, reject) => {
@@ -104,7 +106,7 @@ export class WindowsDictationService {
           void this.request('cancel', id).catch(() => undefined)
           throw new Error('The dictation target changed.')
         }
-        await this.request('insert', id, text)
+        await this.request('insert', id, text, undefined, current)
       },
     }
   }

@@ -74,7 +74,10 @@ export class AriaWidget {
       ipcMain.handle(`ari:speechCapture.${action}`, (event, token: unknown) => {
         if (event.sender !== this.deps.mainWindow?.()?.webContents || event.sender.isDestroyed())
           throw new Error('Rejected dictation sender')
-        if (action === 'acquire') return (this.composerToken = this.lease.acquire())
+        if (action === 'acquire')
+          return (this.composerToken = this.lease.acquire(
+            typeof token === 'string' ? token : undefined,
+          ))
         if (typeof token === 'string' && token === this.composerToken) {
           this.lease.release(token)
           this.composerToken = null
@@ -99,8 +102,12 @@ export class AriaWidget {
   }
 
   private readonly resetCapture = (): void => {
-    this.lease.reset()
+    if (this.composerToken) this.lease.release(this.composerToken)
     this.composerToken = null
+    // The widget can still transcribe even if its original renderer went away.
+    // Its pinned target will reject insertion and the result can be recovered.
+    if (this.destination === 'dictation' && !this.hold.canStart) return
+    this.lease.reset()
     this.hold.cancel()
     this.publish()
   }
@@ -447,8 +454,6 @@ export class AriaWidget {
             const token = this.token
             const target = await this.target
             if (!token || !target || !this.lease.current(token)) return
-            // Every result stays on the clipboard so it can be pasted anywhere.
-            clipboard.writeText(text)
             const current = (): boolean =>
               this.lease.current(token) &&
               id === this.hold.state.id &&
@@ -458,14 +463,8 @@ export class AriaWidget {
               await target.insert(text, current)
             } catch (error) {
               if (!current()) throw error
-              // Focus moved while dictating: type where the user is now instead.
-              try {
-                const here = await this.captureTarget(`${token}:retarget`)
-                await here.insert(text, current)
-              } catch {
-                if (!current()) throw error
-                throw new Error('Copied to clipboard. Press Ctrl+V to paste.')
-              }
+              clipboard.writeText(text)
+              throw new Error('Couldn’t insert. Dictation copied to clipboard.', { cause: error })
             }
           } else
             await sendToAria(
@@ -496,7 +495,7 @@ export class AriaWidget {
           performance.now(),
         )
       } finally {
-        this.sending = null
+        if (this.sending === id) this.sending = null
       }
     }
     this.publish()
