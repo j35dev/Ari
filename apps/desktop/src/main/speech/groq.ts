@@ -1,6 +1,7 @@
 /** Speech-only Groq client. Never logs keys, request bodies, or remote error bodies. */
 export const GROQ_SPEECH_MODEL = 'canopylabs/orpheus-v1-english'
 export const GROQ_VOICES = ['autumn', 'diana', 'hannah', 'austin', 'daniel', 'troy'] as const
+export const GROQ_SPEECH_LIMIT = 200
 const base = 'https://api.groq.com/openai/v1/audio/'
 
 export function pcmWav(pcm: Float32Array, rate = 16000): Uint8Array {
@@ -93,8 +94,12 @@ export class GroqSpeech {
   }
 
   async speak(text: string, voice: string, signal: AbortSignal): Promise<Uint8Array> {
-    if (!text || text.length > 200 || !(GROQ_VOICES as readonly string[]).includes(voice))
-      throw new Error('Invalid Groq spoken clause.')
+    if (
+      !text ||
+      text.length > GROQ_SPEECH_LIMIT ||
+      !(GROQ_VOICES as readonly string[]).includes(voice)
+    )
+      throw new Error('Invalid Groq speech input.')
     const response = await this.call(
       'speech',
       JSON.stringify({ model: GROQ_SPEECH_MODEL, voice, input: text, response_format: 'wav' }),

@@ -3,11 +3,11 @@ import { randomUUID } from 'node:crypto'
 import { utilityProcess, type UtilityProcess, type WebContents } from 'electron'
 import type { SettingsStore } from '@ari/engine/settings'
 import type { RpcResults, SpeechProgress } from '@ari/contracts/rpc'
-import { condenseReply, readableReply, speechChunks } from '@ari/contracts/aria-voice'
+import { condenseReply, readableReply, speechChunks, spokenReply } from '@ari/contracts/aria-voice'
 import { getAudioDucking } from './audio-ducking'
 import { type SpeechService } from './service'
 import { KOKORO_ID } from './voice-model'
-import { type GroqSpeech, pcmWav, withLocalFallback } from './groq'
+import { GROQ_SPEECH_LIMIT, type GroqSpeech, pcmWav, withLocalFallback } from './groq'
 import { normalizeCloudSpeech } from './pronunciation'
 
 type Status = RpcResults['aria.voice.status']
@@ -34,14 +34,18 @@ export class VoiceService {
   private generation = 0
   private abort = new AbortController()
   private idle: ReturnType<typeof setTimeout> | undefined
-  /** Settles when everything queued so far has been said. */
+  /** Settles when all audio queued so far has been sent to the player. */
   private tail: Promise<void> = Promise.resolve()
   private loading: Promise<void> | null = null
   private owner = randomUUID()
   private state: Status = { installed: false, loaded: false, error: null, hardware: null }
   private playback = new Map<
     number,
-    { resolve: () => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }
+    {
+      finished: Promise<string | undefined>
+      resolve: (error?: string) => void
+      timeout: ReturnType<typeof setTimeout>
+    }
   >()
   publish: (frame: SpeechProgress) => void = () => undefined
   constructor(
@@ -65,9 +69,14 @@ export class VoiceService {
     this.state.error = message
     this.publish({ id: 'aria-voice', phase: 'error', received: 0, total: 0, error: message })
   }
-  private async request(kind: 'load' | 'speak', text?: string): Promise<Reply> {
+  private async request(
+    kind: 'load' | 'speak',
+    text?: string,
+    signal?: AbortSignal,
+  ): Promise<Reply> {
     if (!this.enabled()) throw new Error('Aria is off.')
     const model = (await this.models.models(false)).find((m) => m.id === KOKORO_ID)
+    signal?.throwIfAborted()
     if (!model?.installed)
       throw new Error('Download Kokoro in Settings → Experimental → Aria to use local speech.')
     if (!this.worker) {
@@ -141,12 +150,13 @@ export class VoiceService {
     this.generation++
     this.abort.abort()
     this.abort = new AbortController()
+    this.tail = Promise.resolve()
     this.worker?.postMessage({ kind: 'cancel', generation: this.generation })
     if (!this.contents.isDestroyed())
       this.contents.send('ari:ariaVoice.audio', { generation: this.generation, stop: true })
     for (const entry of this.playback.values()) {
       clearTimeout(entry.timeout)
-      entry.reject(new Error('Speech interrupted.'))
+      entry.resolve()
     }
     this.playback.clear()
     this.state.error = null
@@ -156,85 +166,105 @@ export class VoiceService {
   }
   played(id: number, generation: number, error?: string): void {
     if (generation !== this.generation) return
+    this.finishPlayback(id, error ? 'Speech playback failed. Try Read aloud again.' : undefined)
+  }
+  private finishPlayback(id: number, error?: string): void {
     const pending = this.playback.get(id)
     if (!pending) return
     this.playback.delete(id)
     clearTimeout(pending.timeout)
-    if (error) pending.reject(new Error('Speech playback failed. Try Read aloud again.'))
-    else pending.resolve()
+    pending.resolve(error)
+    if (!this.playback.size) getAudioDucking().setActive(this.owner, false)
   }
-  private play(audio: Uint8Array, generation: number): Promise<void> {
+  private play(audio: Uint8Array, generation: number): Promise<string | undefined> {
     if (generation !== this.generation || this.contents.isDestroyed())
       throw new Error('Speech interrupted.')
     const id = ++this.nextId
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.playback.delete(id)
-        reject(new Error('Speech playback timed out.'))
-      }, 90_000)
-      this.playback.set(id, { resolve, reject, timeout })
+    let resolve!: (error?: string) => void
+    const finished = new Promise<string | undefined>((done) => {
+      resolve = done
+    })
+    const timeout = setTimeout(() => this.finishPlayback(id, 'Speech playback timed out.'), 90_000)
+    if (!this.playback.size)
+      getAudioDucking().setActive(this.owner, this.settings.current.speech.duckAudio)
+    this.playback.set(id, { finished, resolve, timeout })
+    try {
       this.contents.send('ari:ariaVoice.audio', {
         id,
         generation,
         audio,
         volume: this.settings.current.ariaVoice.volume,
       })
-    })
+    } catch {
+      this.finishPlayback(id, 'Speech playback failed. Try Read aloud again.')
+    }
+    return finished
   }
   /**
    * Says a reply. On its own it replaces whatever is being said. With
-   * `follow` it waits its turn behind what is already playing, which is how
-   * the passages of one turn are heard in order as they are written.
+   * `follow` it queues after the previous passage and can render while it plays.
    */
   speak(reply: string, options: { readAll?: boolean; follow?: boolean } = {}): Promise<void> {
     if (!options.follow) this.stop()
     if (!this.enabled()) return Promise.resolve()
     const generation = this.generation
     const signal = this.abort.signal
-    const before = options.follow ? this.tail : Promise.resolve()
-    // Anything that stops speech moves the generation on, and what was queued is dropped.
-    const done = before.then(() =>
-      generation === this.generation ? this.say(reply, options, generation, signal) : undefined,
+    const playback: Promise<string | undefined>[] = []
+    const submitted = this.tail.then(() =>
+      this.queueReply(reply, options, generation, signal, playback),
     )
-    this.tail = done.catch(() => undefined)
-    return done
+    this.tail = submitted.catch(() => undefined)
+    return submitted
+      .catch((error: unknown) => (error instanceof Error ? error.message : 'Speech failed.'))
+      .then(async (error) => {
+        const results = await Promise.all(playback)
+        if (signal.aborted) return
+        const failure = error ?? results.find((result) => result !== undefined)
+        if (failure) this.report(failure)
+        else if (playback.length)
+          this.publish({ id: 'aria-voice', phase: 'complete', received: 0, total: 0 })
+        this.scheduleIdle()
+      })
   }
-  private async say(
+  private async queueReply(
     reply: string,
     options: { readAll?: boolean },
     generation: number,
     signal: AbortSignal,
+    playback: Promise<string | undefined>[],
   ): Promise<void> {
+    signal.throwIfAborted()
+    const authored = options.readAll ? null : spokenReply(reply)
+    const text = options.readAll ? readableReply(reply) : (authored?.text ?? condenseReply(reply))
+    let engine = this.settings.current.ariaVoice.engine
     let chunks: string[]
     try {
       chunks = speechChunks(
-        options.readAll ? readableReply(reply) : condenseReply(reply),
-        200,
-        this.settings.current.ariaVoice.engine === 'groq'
-          ? (text) => normalizeCloudSpeech(text).length
-          : undefined,
+        text,
+        engine === 'groq' ? GROQ_SPEECH_LIMIT : undefined,
+        engine === 'groq' ? (part) => normalizeCloudSpeech(part).length : undefined,
       )
     } catch {
-      this.report('This spoken line is too long. Shorten it and try Read aloud again.')
-      return
+      throw new Error('This spoken line is too long. Shorten it and try Read aloud again.')
     }
     if (!chunks.length) return
     this.state.error = null
-    let engine = this.settings.current.ariaVoice.engine
-    const synthesize = async (text: string): Promise<Uint8Array> => {
+    const synthesize = async (text: string, index: number): Promise<Uint8Array> => {
       signal.throwIfAborted()
       const local = async () => {
         await this.warm()
-        signal.throwIfAborted()
-        const result = await this.request('speak', text)
+        const result = await this.request('speak', text, signal)
         if (!result.audio || result.cancelled) throw new Error('Speech interrupted.')
         return pcmWav(result.audio.samples, result.audio.sampleRate)
       }
       if (engine === 'kokoro') return local()
+      const normalized = normalizeCloudSpeech(text)
+      const tone = index === 0 ? authored?.tone : undefined
+      const directed = tone ? `[${tone}] ${normalized}` : normalized
       return withLocalFallback(
         () =>
           this.groq.speak(
-            normalizeCloudSpeech(text),
+            directed.length <= GROQ_SPEECH_LIMIT ? directed : normalized,
             this.settings.current.ariaVoice.groqVoice,
             signal,
           ),
@@ -246,27 +276,13 @@ export class VoiceService {
         signal,
       )
     }
-    try {
-      // Generate just one clause ahead while the current audio plays. Memory stays bounded.
-      let next = synthesize(chunks[0]!)
-      for (let i = 0; i < chunks.length; i++) {
-        const audio = await next
-        signal.throwIfAborted()
-        if (i + 1 < chunks.length) {
-          next = synthesize(chunks[i + 1]!)
-          void next.catch(() => undefined)
-        }
-        getAudioDucking().setActive(this.owner, this.settings.current.speech.duckAudio)
-        await this.play(audio, generation)
-      }
-      this.publish({ id: 'aria-voice', phase: 'complete', received: 0, total: 0 })
-    } catch (error) {
-      if (!signal.aborted) this.report(error instanceof Error ? error.message : 'Speech failed.')
-    } finally {
-      if (generation === this.generation) {
-        getAudioDucking().setActive(this.owner, false)
-        this.scheduleIdle()
-      }
+    for (const [index, text] of chunks.entries()) {
+      const audio = await synthesize(text, index)
+      signal.throwIfAborted()
+      // Keep a playing clip and its successor in the renderer, plus at most one synthesized clip here.
+      if (this.playback.size >= 2) await this.playback.values().next().value?.finished
+      signal.throwIfAborted()
+      playback.push(this.play(audio, generation))
     }
   }
   configure(): void {
